@@ -1,0 +1,57 @@
+<dom-module id="create-network">
+    <style>
+      :host {
+        display: block;
+      }
+
+    </style>
+  <template>
+
+    <form center class="sized" is="iron-form" id="create-form" method="POST" action="/api/v1/networks">
+      <paper-input name="networkName" label="Network Name"></paper-input>
+      <gold-email-input name="networkAdmin" label="Email" auto-validate="true"></gold-email-input>
+      <paper-input name="networkDesc" label="Description"></paper-input>
+      <paper-input name="networkTags" label="Tags"></paper-input>
+      <paper-toggle-button></paper-toggle-button>Private Network
+      <paper-button id="create-btn" raised>Create Network</paper-button>
+    </form>
+
+  </template>
+</dom-module>
+  <script>
+  (function() {
+    Polymer({
+      is: 'create-network',
+
+      properties: {
+        netid: {
+          type: Number
+        //  observer: 'inputChanged'
+        }
+      },
+      behaviors: [
+        Polymer.IronFitBehavior
+      ],
+      listeners: {
+        'create-btn.click': 'handleSubmit',
+        'iron-form-response': 'handleFormResponse'
+      },
+
+      handleSubmit: function() {
+        console.log(document.getElementById('create-form').serialize());
+        //TODO: Form post is buggy!
+        document.getElementById('create-form').submit(); //submits serialized json as post request
+
+
+        //page('/networks/'+networkID);
+      },
+
+      handleFormResponse: function(e) {
+        console.log(e.detail.message);
+        page('/networks/'+e.detail.message);
+      }
+
+    });
+
+    })();
+  </script>

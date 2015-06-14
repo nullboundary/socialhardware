@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="description" content="">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="generator" content="Social Hardware: IOT on the web" />
+  <title>Social Hardware</title>
+  <link rel="stylesheet" is="custom-style" href="/assets/styles/main.css">
+  <script src="/assets/scripts/webcomponents-lite.js"></script>
+  <link rel="import" href="/assets/elements/elements.html">
+</head>
+
+<body unresolved class="fullbleed layout vertical">
+
+  <template is="dom-bind" id="app">
+
+    <paper-header-panel main mode="waterfall">
+
+      <!-- Main Toolbar -->
+      <paper-material elevation="1">
+
+      <paper-toolbar id="mainToolbar">
+
+        <span class="flex"></span>
+
+        <!-- Toolbar icons -->
+        <paper-icon-button icon="refresh"></paper-icon-button>
+        <paper-icon-button icon="search"></paper-icon-button>
+        <div class="middle"></div>
+
+        <!-- Application name -->
+        <div class="appname bottom paper-font-display2">Social Hardware</div>
+
+      </paper-toolbar>
+    </paper-material>
+
+    <!-- Main Content -->
+    <iron-pages attr-for-selected="data-route" selected="{{route}}">
+
+      <section data-route="home">
+        <template is="dom-if" if="{{home}}" >
+        <paper-material elevation="1">
+
+          <create-network></create-network>
+
+        </paper-material>
+
+        <paper-material elevation="1">
+
+          <find-network center class="sized"></find-network>
+        </paper-material>
+
+      </template>
+
+      </section>
+
+      <section data-route="network-display">
+        <template is="dom-if" if="{{netid}}" >
+
+          <load-network netid="{{params.netid}}"></load-network>
+
+      </template>
+      </section>
+
+    </iron-pages>
+  </paper-header-panel>
+
+
+  </template>
+
+  <script src="/assets/scripts/app.js"></script>
+</body>
+
+</html>

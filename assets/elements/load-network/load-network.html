@@ -1,0 +1,122 @@
+<dom-module id="load-network">
+  <style>
+    :host {
+      display: block;
+    }
+  </style>
+
+  <template>
+
+    <style>
+    .stream-title {
+      display: inline-flex;
+        padding-left: 1.4em;
+        padding-top: 1em;
+        padding-bottom: 1em;
+      }
+    }
+    </style>
+
+    <paper-material elevation="1">
+
+      <h2 class="net-title">
+        Network -
+        <span>{{netid}}</span>
+      </h2>
+      <paper-button id="create-stream-btn" raised>Add Stream</paper-button>
+    </paper-material>
+
+
+    <template is="dom-repeat" items="{{streams}}">
+
+        <paper-material elevation="1">
+          <paper-icon-button icon="menu" on-click="handleToggle"></paper-icon-button>
+          <div class="stream-title">streamID:
+            <span>{{item.streamId}}</span>
+          </div>
+          <iron-collapse id="{{computeCollapseId(index)}}" opened>
+          <line-chart width="80%" height="100%" netid="{{item.networkId}}" streamid="{{item.streamId}}"></line-chart>
+        </iron-collapse>
+        </paper-material>
+
+    </template>
+
+  </template>
+</dom-module>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.min.js" charset="utf-8"></script>
+<script>
+  (function() {
+
+    Polymer({
+      is: 'load-network',
+
+      properties: {
+        netid: String //the id for this network
+      },
+
+      listeners: {
+        'create-stream-btn.click': 'handleClick'
+      },
+
+
+
+      attached: function() {
+        this.loadStreamList();
+      },
+
+      computeCollapseId: function(index) {
+        return "collapse" + index;
+      },
+
+      handleToggle: function(e) {
+        var collapseElm = document.querySelector('#collapse' + e.model.index);
+
+        collapseElm.toggle();
+        //model.item.streamId.toggle();
+
+      },
+
+      handleClick: function() {
+        var poly = this;
+
+        //TODO: replace with polymer ajax method
+        d3.json('/api/v1/networks/' + this.netid + '/streams')
+          .header("Content-Type", "application/json")
+          .post(JSON.stringify({}), function(error, data) {
+            //request server error
+            if (error) {
+              console.log(error);
+              return;
+            }
+            poly.loadStreamList(); //TODO: or just return the new stream id?
+          });
+
+      },
+
+      loadStreamList: function() {
+        var poly = this;
+
+        //load list of streams
+        //TODO: replace with polymer ajax method
+        d3.json('/api/v1/networks/' + this.netid + '/streams', function(error, data) {
+
+          //request server error
+          if (error) {
+            console.log(error);
+            return;
+          }
+          console.log(JSON.stringify(data));
+
+          //no streams data. Do nothing.
+          if (!data.length) {
+            return;
+          }
+          poly.streams = data;
+        });
+      }
+
+
+    });
+
+  })();
+</script>

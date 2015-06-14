@@ -1,0 +1,262 @@
+<dom-module id="line-chart">
+  <style>
+    :host {
+      display: block;
+    }
+  </style>
+  <template>
+
+    <style>
+      .axis path,
+      .axis line {
+        fill: none;
+        stroke: #D8D8D8;
+        shape-rendering: crispEdges;
+      }
+
+      .axis text {
+        font-family: sans-serif;
+        font-size: 11px;
+        fill: #6B6B6B;
+      }
+
+      .line {
+        fill: none;
+        stroke: #E00707;
+        stroke-width: 2px;
+      }
+
+      .no-data {
+        padding: 5em 5em 5em 5em;
+      }
+    </style>
+
+    <div id="{{computeChart(streamid)}}"></div>
+
+  </template>
+</dom-module>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.min.js" charset="utf-8"></script>
+<script src="/assets/cleanChart.js"></script>
+<script>
+  (function() {
+
+    //  var chart;
+    var socketAttempts = 1;
+    var JSONData;
+    var margin = {
+      top: 0,
+      right: 20,
+      bottom: 20,
+      left: 40
+    };
+
+    Polymer({
+      is: "line-chart",
+      properties: {
+        netid: String,
+        streamid: String,
+        width: String,
+        height: String,
+        chart: Object,
+        ws: Object,
+        data: {
+          type: Array,
+          notify: true
+        //  value: function() {
+        //    return [];
+      //    },
+        }
+      },
+      observers: ['dataChanged(data.*)'],
+      /***********************************************************
+
+
+       ***********************************************************/
+      computeSize: function(width, height) {
+        var size = {};
+        console.log(this.width);
+        console.log(this.height);
+
+        var widthPercent = parseFloat(this.width) / 100.0;
+        var heightPercent = parseFloat(this.height) / 100.0;
+
+        size.height = height * heightPercent;
+        size.width = width * widthPercent;
+
+        return size;
+      },
+
+      computeChart: function(streamid) {
+        return 'chart-' + streamid;
+      },
+      /***********************************************************
+
+
+       ***********************************************************/
+      attached: function() {
+
+        this.chart = lineChart()
+          .x(function(d) {
+            return new Date(d.timeStamp);
+          })
+          .y(function(d) {
+            return +d.value;
+          })
+          .margin(margin)
+
+        this.loadStream();
+      },
+
+      /***********************************************************
+
+
+       ***********************************************************/
+      loadStream: function() {
+
+        //polymer object this
+        var poly = this;
+
+        d3.json('/api/v1/networks/' + this.netid + '/streams/' + this.streamid + '/data', function(error, data) {
+
+          if (error) {
+            console.log(error);
+            return;
+          }
+
+          console.log(JSON.stringify(data));
+          console.log(poly.streamid);
+          if (!data.length) {
+            d3.select('#chart-' + poly.streamid)
+              .append('div')
+              .attr('class', 'no-data')
+              .text('Stream contains no data');
+            return;
+          }
+
+          poly.data = data;
+
+          poly.buildNewChart();
+
+        });
+
+        console.log(this.netid);
+        url = 'ws://localhost:8000/api/v1/networks/' + this.netid + '/streams/' + this.streamid + '/socket';
+        this.createWebSocket(url);
+
+      },
+
+      buildNewChart: function() {
+
+        this.data.sort(function(a, b) {
+          return d3.ascending(a.timeStamp, b.timeStamp);
+        }); //sort data based on time
+
+        var chartContainer = d3.select('#chart-' + this.streamid);
+        var size = this.computeSize(chartContainer.node().offsetWidth, 500);
+
+        this.chart
+          .width(size.width)
+          .height(size.height); //TODO: this is a fixed number..shouldn't be
+
+        chartContainer
+          .datum(this.data)
+          .call(this.chart);
+      },
+
+      dataChanged: function(changeRecord) {
+
+        var chartContainer = d3.select('#chart-' + this.streamid)
+        var blankDiv = chartContainer.select('.no-data');
+
+        if (!blankDiv.empty()) { //there is a no-data div inside chart
+          blankDiv.remove(); //remove empty div
+          poly.buildNewChart();
+        } else {
+          this.chart.update(chartContainer,this.data);
+        }
+
+      },
+
+
+      /***********************************************************
+
+
+       ***********************************************************/
+      createWebSocket: function(url) {
+
+        //polymer object this
+        var poly = this;
+        this.ws = new WebSocket(url);
+
+        this.ws.onopen = function() {
+          // reset the tries back to 1 since we have a new connection opened.
+          socketAttempts = 1;
+          poly.socketStatus(true);
+
+        }
+
+        this.ws.onclose = function() {
+
+          poly.socketStatus(false);
+          var time = poly.generateInterval(socketAttempts);
+
+          setTimeout(function() {
+            // We've tried to reconnect so increment the attempts by 1
+            socketAttempts++;
+
+            // Connection has closed so try to reconnect every 10 seconds.
+            poly.createWebSocket(url);
+          }, time);
+        }
+
+        this.ws.onmessage = function(msg) {
+          var data = JSON.parse(msg.data);
+            console.log(msg.data);
+          poly.push('data', data); //dataChanged observer will fire
+
+
+          var log = data.timeStamp + " value:" + data.value + '\r\n';
+          //  d3.select("#output").node().value += log;
+
+          //    console.log(msg);
+        }
+
+      },
+
+      /***********************************************************
+
+
+       ***********************************************************/
+      socketStatus: function(isOpen) {
+
+        if (isOpen) {
+          d3.select("#status")
+            .style('color', 'green')
+            .text('Server Connected');
+        } else {
+          d3.select("#status")
+            .style('color', 'gray')
+            .text('Server Disconnected');
+        }
+
+      },
+
+      /***********************************************************
+
+
+       ***********************************************************/
+      generateInterval: function(k) {
+        var maxInterval = (Math.pow(2, k) - 1) * 1000;
+
+        if (maxInterval > 30 * 1000) {
+          maxInterval = 30 * 1000; // If the generated interval is more than 30 seconds, truncate it down to 30 seconds.
+        }
+
+        // generate the interval to a random number between 0 and the maxInterval determined from above
+        return Math.random() * maxInterval;
+      }
+
+    });
+
+  })();
+</script>
