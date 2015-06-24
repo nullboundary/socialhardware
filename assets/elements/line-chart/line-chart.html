@@ -15,15 +15,21 @@
       }
 
       .axis text {
-        font-family: sans-serif;
+        font: var(--paper-font-caption);
+        /*font-family: 'Roboto', 'Noto', sans-serif;
         font-size: 11px;
-        fill: #6B6B6B;
+        fill: #727272;*/
       }
 
       .line {
         fill: none;
-        stroke: #E00707;
+        stroke: #1A237E;
+        /* TODO access from outside module */
         stroke-width: 2px;
+      }
+
+      .area {
+        fill: #5C6BC0;
       }
 
       .no-data {
@@ -116,7 +122,9 @@
         //polymer object this
         var poly = this;
 
-        d3.json('/api/v1/networks/' + this.netid + '/streams/' + this.streamid + '/data', function(error, data) {
+        d3.json('/api/v1/networks/' + this.netid + '/streams/' + this.streamid + '/data')
+        .header("Authorization", "Bearer " + poly.getJWToken())
+        .get(function(error, data) {
 
           if (error) {
             console.log(error);
@@ -141,7 +149,8 @@
 
         console.log(this.netid);
         url = 'ws://localhost:8000/api/v1/networks/' + this.netid + '/streams/' + this.streamid + '/socket';
-        this.createWebSocket(url);
+        var uri = url + '?token=' + poly.getJWToken();
+        this.createWebSocket(uri);
 
       },
 
@@ -254,6 +263,11 @@
 
         // generate the interval to a random number between 0 and the maxInterval determined from above
         return Math.random() * maxInterval;
+      },
+      getJWToken: function() { //todo this is copied from load-network, find a another way to share the function?
+        if (sessionStorage.getItem("token")) {
+          return sessionStorage.getItem("token");
+        }
       }
 
     });

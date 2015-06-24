@@ -3,27 +3,39 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
 	"bitbucket.org/cicadaDev/storer"
+	"code.google.com/p/go.crypto/bcrypt"
 	"github.com/dancannon/gorethink/encoding"
 )
 
+type user struct {
+	Email     string    `json:"email" gorethink:"email" binding:"required"` //the users email works as an id
+	PassCrypt []byte    `json:"passcrypt,omitempty" gorethink:"passcrypt"`  //bcrypted password byte slice
+	Created   time.Time `json:"created,omitempty" gorethink:"created"`      //Date account was created
+	Verified  bool      `json:"verified,omitempty" gorethink:"verified"`    //is the account email verified?
+}
+
 //network is a group of streams, could also be called a project
 type network struct {
-	NetworkID      string   `json:"networkId" gorethink:"networkId"`                               //A unique ID for each network sending data
-	NetworkAdmin   string   `json:"networkAdmin,omitempty" gorethink:"networkAdmin,omitempty"`     //owner of the network
-	NetworkName    string   `json:"networkName,omitempty" gorethink:"networkName,omitempty"`       //name of the network
-	NetworkDesc    string   `json:"networkDesc,omitempty" gorethink:"networkDesc,omitempty"`       //A wordy description of the sensor network
-	NetworkAccess  bool     `json:"networkAcess,omitempty" gorethink:"networkAcess,omitempty"`     //true = public, false = private
-	NetworkTags    []string `json:"networkTags,omitempty" gorethink:"networkTags,omitempty"`       //used for searching or catagorizing
-	NetworkStreams []string `json:"networkStreams,omitempty" gorethink:"networkStreams,omitempty"` //list of stream ids in this network
+	NetworkID       string    `json:"networkId" gorethink:"networkId"`                           //A unique ID for each network sending data
+	NetworkAdmin    string    `json:"networkAdmin,omitempty" gorethink:"networkAdmin,omitempty"` //owner of the network
+	NetworkName     string    `json:"networkName,omitempty" gorethink:"networkName,omitempty"`   //name of the network
+	NetworkDesc     string    `json:"networkDesc,omitempty" gorethink:"networkDesc,omitempty"`   //A wordy description of the sensor network
+	NetworkAccess   bool      `json:"networkAcess,omitempty" gorethink:"networkAcess,omitempty"` //true = public, false = private
+	NetworkTags     []string  `json:"networkTags,omitempty" gorethink:"networkTags,omitempty"`   //used for searching or catagorizing
+	NetworkStreams  []string  `json:"networkStreams,omitempty" gorethink:"networkStreams"`       //list of stream ids in this network
+	NetworkTriggers []trigger `json:"networkTriggers,omitempty" gorethink:"networkTriggers"`
 }
 
 //a stream represents a single stream of data from 1 stream
 type stream struct {
 	NetworkID    string    `json:"networkId" gorethink:"networkId"`                         //The network ID for the creator of this stream
+	StreamAdmin  string    `json:"streamAdmin,omitempty" gorethink:"streamAdmin,omitempty"` //owner of the stream
 	StreamID     string    `json:"streamId" gorethink:"streamId"`                           //A unique ID for each sensor sending data
 	StreamName   string    `json:"streamName,omitempty" gorethink:"streamName,omitempty"`   //A human readable name
 	StreamType   string    `json:"streamType,omitempty" gorethink:"streamType,omitempty"`   //The type of stream/sensor. Example: TGS2620 is a model of VOC air sensor
@@ -32,6 +44,22 @@ type stream struct {
 	StreamLoc    *location `json:"streamLoc,omitempty" gorethink:"streamLoc,omitempty"`     //the lat long location of a stream
 	StreamTags   []string  `json:"streamTags,omitempty" gorethink:"streamTags,omitempty"`   //list of stream description tags
 
+}
+
+type trigger struct {
+	StreamID         string   `json:"streamId" gorethink:"streamId"`   //A unique ID for each sensor sending data
+	TriggerID        string   `json:"triggerId" gorethink:"triggerId"` //A unique ID for each sensor sending data
+	TriggerType      string   `json:"triggerType" gorethink:"triggerType"`
+	TriggerHook      *webhook `json:"triggerHook" gorethink:"triggerHook"`
+	TriggerCondition string   `json:"triggerCond" gorethink:"triggerCond"` //a conditional statement
+}
+
+type webhook struct {
+	URL     string          `json:"url,omitempty" gorethink:"url,omitempty"`         //A url to send a request to if triggered
+	Method  string          `json:"method,omitempty" gorethink:"method,omitempty"`   //GET, POST, PUT, etc
+	Headers http.Header     `json:"headers,omitempty" gorethink:"headers,omitempty"` //HTTP headers to add to request
+	Form    url.Values      `json:"form,omitempty" gorethink:"form,omitempty"`       //Form values
+	Body    json.RawMessage `json:"body,omitempty" gorethink:"body,omitempty"`       //raw json request input body for PUT, POST requests
 }
 
 //Location provides information about a stream location.
@@ -48,6 +76,8 @@ type dataPoint struct {
 	TimeStamp time.Time `json:"timeStamp,omitempty" gorethink:"timestamp"`         //time
 	Value     *value    `json:"value,omitempty" gorethink:"value,omitempty"`       //The data value
 	metaInfo  string    `json:"metaInfo,omitempty" gorethink:"metaInfo,omitempty"` //A note or extra info about the data point
+	loc       *location `json:"loc,omitempty" gorethink:"loc,omitempty"`           //the lat long location of a recorded value
+
 }
 
 //value is used with json.Unmarshal interface to assign either string, float or int to value
@@ -57,19 +87,39 @@ type value struct {
 	ValueString string  `json:"valuestring,omitempty" gorethink:"valuestring,omitempty" valid:"msg"`
 }
 
+func newUser() *user {
+	return &user{}
+}
+
 //	newNetwork returns a pointer to a network struct.
 func newNetwork() *network {
 	return &network{}
 }
 
-//	newStream returns a pointer to a streamStream struct.
+//	newStream returns a pointer to a stream struct.
 func newStream() *stream {
 	return &stream{}
 }
 
-//	newStream returns a pointer to a dataPoint struct.
+//newTrigger returns a pointer to a trigger struct
+func newTrigger() *trigger {
+	return &trigger{}
+}
+
+//	newDataPoint returns a pointer to a dataPoint struct.
 func newDataPoint() *dataPoint {
 	return &dataPoint{}
+}
+
+func (u *user) setPassword(password string) {
+
+	//bcrypt password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), 12) //cost ~400ms on mac-air
+	if err != nil {
+		log.Println(err)
+	}
+	u.PassCrypt = hashedPassword
+
 }
 
 //	MarshalRQL takes value type data input to rethinkdb which is marshaled into sub values of

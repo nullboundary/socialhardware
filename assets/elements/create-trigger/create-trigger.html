@@ -1,0 +1,114 @@
+<dom-module id="create-trigger">
+  <style>
+    :host {
+      display: block;
+      @apply(--create-trigger-theme);
+    }
+
+    .container {
+      background-color: var(--create-trigger-container-background-color);
+      padding-top: 25px;
+      padding-bottom: 5px;
+      margin-left: 25px;
+      margin-right: 25px;
+    }
+
+    paper-input {
+      --paper-input-container-color: var(--create-trigger-container-color);
+      --paper-input-container-input-color: var(--create-trigger-container-input-color);
+    }
+    #create-btn {
+      position: relative;
+    left: 346px;
+    bottom: 215px;
+    --paper-fab-background: var(--create-trigger-fab-bgcolor);
+
+    }
+
+  </style>
+  <template>
+    <paper-material elevation="1">
+      <div class="container">
+        <form center class="sized" is="iron-form" id="create-form" method="POST" action="{{computeFormURL(netid)}}">
+          <label>Stream </label>
+          <select class="streamlist">
+            <template is="dom-repeat" items="{{streams}}">
+              <option>{{item.streamId}}</option>
+            </template>
+          </select>
+          <br>
+          <br>
+          <label>Conditional </label>
+          <select name="triggerType">
+            <option value="gt">Greater Than</option>
+            <option value="lt">Less Than</option>
+            <option value="eq">Equal To</option>
+            <option value="regex">Regex</option>
+          </select>
+          <paper-input name="condition-value" label="Condition Value"></paper-input>
+          <br>
+          <br>
+          <label>Request Method </label>
+          <select name="requestMethod">
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+            <option value="PATCH">PATCH</option>
+            <option value="DELETE">DELETE</option>
+          </select>
+          <paper-input name="request-url" label="Request URL"></paper-input>
+          <paper-input name="request-headers" label="Request Headers"></paper-input>
+          <paper-input name="request-body" label="Json Request Body"></paper-input>
+          <br>
+          <!--<paper-button id="create-btn" raised>Create Trigger</paper-button>-->
+          <paper-fab icon="add" id="create-btn"></paper-fab>
+        </form>
+      </div>
+    </paper-material>
+
+
+  </template>
+</dom-module>
+<script>
+  (function() {
+
+    Polymer({
+      is: 'create-trigger',
+
+      properties: {
+        netid: {
+          type: Number
+            //  observer: 'inputChanged'
+        }
+      },
+      behaviors: [
+        Polymer.IronFitBehavior
+      ],
+      listeners: {
+        'create-btn.click': 'handleSubmit',
+        'iron-form-response': 'handleFormResponse'
+      },
+
+      handleSubmit: function() {
+        console.log(document.getElementById('create-form').serialize());
+        //TODO: Form post is buggy!
+        document.getElementById('create-form').submit(); //submits serialized json as post request
+
+
+        //page('/networks/'+networkID);
+      },
+
+      computeFormURL: function(netid) {
+        return "/api/v1/networks/" + netid + "/triggers"
+      },
+
+
+      handleFormResponse: function(e) {
+        console.log(e.detail.message);
+
+      }
+
+    });
+
+  })();
+</script>

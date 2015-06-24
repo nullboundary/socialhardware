@@ -1,0 +1,62 @@
+<dom-module id="signin-form">
+    <style>
+      :host {
+        display: block;
+
+      }
+      .title {
+     color: var(--my-toolbar-title-color);
+    }
+
+
+
+    </style>
+  <template>
+
+    <h1>{{label}}</h1>
+  <form center class="sized" is="iron-form" id="input-form" method="POST" action="{{url}}">
+    <gold-email-input name="email" label="Email" auto-validate="true"></gold-email-input>
+    <paper-input label="password" type="password"></paper-input>
+    <br>
+    <br>
+    <paper-button id="submit-btn" raised>{{label}}</paper-button>
+  </form>
+
+
+  </template>
+</dom-module>
+  <script>
+  (function() {
+    Polymer({
+      is: 'signin-form',
+
+        properties: {
+          url: String, //the submit url
+          label: String //button and h1 label
+        },
+      behaviors: [
+        Polymer.IronFitBehavior
+      ],
+      listeners: {
+        'submit-btn.click': 'handleSubmit',
+        'iron-form-response': 'handleFormResponse',
+        'iron-form-error': 'handleFormError'
+      },
+
+      handleSubmit: function() {
+        console.log(this.$['input-form'].serialize());
+        this.$['input-form'].submit();
+      },
+      handleFormResponse: function(e) {
+        //console.log(e.detail);
+    //    sessionStorage.setItem("token",e.detail.token);
+    //    page('/users/');
+      },
+      handleFormError: function(e) {
+        console.warn(e.detail.error.message);
+      }
+
+    });
+
+    })();
+  </script>

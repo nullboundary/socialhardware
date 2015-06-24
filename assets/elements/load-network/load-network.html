@@ -3,43 +3,88 @@
     :host {
       display: block;
     }
+
+    .dark-container {
+      background-color: var(--load-network-dark-container-background-color);
+      color: var(--load-network-dark-container-color);
+      font: var(--load-network-dark-container-font);
+    }
   </style>
 
   <template>
 
     <style>
-    .stream-title {
-      display: inline-flex;
+    .title {
+        display: inline-flex;
         padding-left: 1.4em;
         padding-top: 1em;
         padding-bottom: 1em;
+        font: var(--paper-font-subhead);
+      }
+      /* FIXME: this should come from the host css somehow?!? */
+
+      .vertical-section {
+        background-color: white;
+        padding: 24px;
+        margin: 0 24px 24px 24px;
+        @apply(--shadow-elevation-2dp);
+      }
+
+      .horizontal-section {
+        background-color: white;
+        padding: 24px;
+        margin-right: 24px;
+        min-width: 200px;
+        @apply(--shadow-elevation-2dp);
+      }
+
+      .centered {
+        max-width: 400px;
+        margin-left: auto;
+        margin-right: auto;
       }
     }
     </style>
 
-    <paper-material elevation="1">
+    <!--  <paper-material elevation="1"> -->
 
-      <h2 class="net-title">
-        Network -
-        <span>{{netid}}</span>
-      </h2>
-      <paper-button id="create-stream-btn" raised>Add Stream</paper-button>
-    </paper-material>
+    <h2 class="title">
+      Network -
+      <span>{{netid}}</span>
+    </h2>
+    <paper-button id="create-stream-btn" raised>Add Stream</paper-button>
+    <!--  </paper-material> -->
 
+    <!--<paper-material elevation="1">-->
+    <div class="dark-container">
+      <paper-icon-button icon="menu" on-click="handleTriggerToggle"></paper-icon-button>
+      Add Trigger
+      <iron-collapse id="add-trigger-1">
+        <div class="vertical-section centered dark-container">
+          <create-trigger netid="{{netid}}"></create-trigger>
+
+        </div>
+      </iron-collapse>
+    </div>
+
+    <!--</paper-material>-->
 
     <template is="dom-repeat" items="{{streams}}">
 
-        <paper-material elevation="1">
-          <paper-icon-button icon="menu" on-click="handleToggle"></paper-icon-button>
-          <div class="stream-title">streamID:
-            <span>{{item.streamId}}</span>
-          </div>
-          <iron-collapse id="{{computeCollapseId(index)}}" opened>
-          <line-chart width="80%" height="100%" netid="{{item.networkId}}" streamid="{{item.streamId}}"></line-chart>
+      <paper-material elevation="1">
+        <paper-icon-button icon="menu" on-click="handleToggle"></paper-icon-button>
+        <div class="title">streamID:
+          <span>{{item.streamId}}</span>
+        </div>
+        <iron-collapse id="{{computeCollapseId(index)}}" opened>
+
+          <line-chart width="100%" height="100%" netid="{{item.networkId}}" streamid="{{item.streamId}}"></line-chart>
+
         </iron-collapse>
-        </paper-material>
+      </paper-material>
 
     </template>
+
 
   </template>
 </dom-module>
@@ -70,10 +115,12 @@
 
       handleToggle: function(e) {
         var collapseElm = document.querySelector('#collapse' + e.model.index);
-
         collapseElm.toggle();
-        //model.item.streamId.toggle();
+      },
 
+      handleTriggerToggle: function(e) {
+        var collapseTrigger = this.$['add-trigger-1']//document.querySelector('#add-trigger-1');
+        collapseTrigger.toggle();
       },
 
       handleClick: function() {
@@ -82,6 +129,7 @@
         //TODO: replace with polymer ajax method
         d3.json('/api/v1/networks/' + this.netid + '/streams')
           .header("Content-Type", "application/json")
+          .header("Authorization", "Bearer " + poly.getJWToken())
           .post(JSON.stringify({}), function(error, data) {
             //request server error
             if (error) {
@@ -98,21 +146,29 @@
 
         //load list of streams
         //TODO: replace with polymer ajax method
-        d3.json('/api/v1/networks/' + this.netid + '/streams', function(error, data) {
+        d3.json('/api/v1/networks/' + this.netid + '/streams')
+          .header("Authorization", "Bearer " + poly.getJWToken())
+          .get(function(error, data) {
 
-          //request server error
-          if (error) {
-            console.log(error);
-            return;
-          }
-          console.log(JSON.stringify(data));
+            //request server error
+            if (error) {
+              console.log(error);
+              return;
+            }
+            console.log(JSON.stringify(data));
 
-          //no streams data. Do nothing.
-          if (!data.length) {
-            return;
-          }
-          poly.streams = data;
-        });
+            //no streams data. Do nothing.
+            if (!data.length) {
+              return;
+            }
+            poly.streams = data;
+          });
+      },
+
+      getJWToken: function() {
+        if (sessionStorage.getItem("token")) {
+          return sessionStorage.getItem("token");
+        }
       }
 
 

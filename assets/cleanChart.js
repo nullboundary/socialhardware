@@ -22,7 +22,7 @@ function lineChart() {
     line = d3.svg.line().interpolate("linear").x(X).y(Y),
     zoom = d3.behavior.zoom().x(xScale).y(yScale).on("zoom", zoomed),
     drawLine = true, //line or no line?
-    drawArea = false, //area graph or no?
+    drawArea = true, //area graph or no?
     drawPoints = true, //points or no?
     drawXAxis = true,
     drawYAxis = true;
@@ -90,7 +90,7 @@ function lineChart() {
         .attr("height", height - margin.top - margin.bottom)
         .attr("fill", "white");
 
-      if (drawArea) gEnter.append("path").attr("class", "area");
+      if (drawArea) gEnter.append("path").attr("class", "area").attr("clip-path", "url(#clip)");
       if (drawLine) gEnter.append("path").attr("class", "line").attr("clip-path", "url(#clip)");
       if (drawXAxis) gEnter.append("g").attr("class", "x axis");
       if (drawYAxis) gEnter.append("g").attr("class", "y axis");
@@ -195,6 +195,10 @@ function lineChart() {
       .attr("class", "line")
       .attr("d", line);
 
+    g.select(".area")
+      .attr("d", area.y0(yScale.range()[0]));
+
+
   }
   /***********************************************************
 
@@ -228,6 +232,13 @@ function lineChart() {
       .ease("linear")
       .duration(1000)
       .attr("d", line);
+
+    g.select(".area")
+      .transition()
+      .ease("linear")
+      .duration(1000)
+      .attr("d", area.y0(yScale.range()[0]));
+
 
     g.select(".x.axis")
       .transition()

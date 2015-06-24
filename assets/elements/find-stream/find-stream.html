@@ -1,0 +1,57 @@
+<dom-module id="find-stream">
+    <style>
+      :host {
+        display: block;
+      }
+
+    </style>
+  <template>
+
+    <h1>Search For A Network</h1>
+    <paper-input-container auto-validate="true">
+      <label>Network ID</label>
+      <input is="iron-input" id="load-input" bind-value="{{streamid}}" pattern="[0-9]*">
+      <paper-input-error>Network IDs are 10 digit numbers</paper-input-error>
+    </paper-input-container>
+    <br>
+    <paper-button id="load-btn" raised>Search</paper-button>
+
+  </template>
+</dom-module>
+  <script>
+  (function() {
+    Polymer({
+      is: 'find-stream',
+
+      properties: {
+        streamid: {
+          type: Number
+        //  observer: 'inputChanged'
+        }
+      },
+      behaviors: [
+        Polymer.IronFitBehavior
+      ],
+      listeners: {
+        'load-btn.click': 'handleClick'
+      },
+
+      handleClick: function() {
+        var streamidID = this.streamid;
+        console.log(streamidID);
+        //page('/users/networks/'+networkID);
+      },
+
+    //  inputChanged: function() {
+    //    var networkID = this.netid;
+    //    console.log(networkID);
+        //page('/networks/'+networkID);
+    //  }
+
+    });
+
+
+
+
+    })();
+  </script>

@@ -2,7 +2,13 @@
     <style>
       :host {
         display: block;
+
       }
+      .title {
+     color: var(--my-toolbar-title-color);
+    }
+
+
 
     </style>
   <template>
@@ -12,9 +18,14 @@
       <gold-email-input name="networkAdmin" label="Email" auto-validate="true"></gold-email-input>
       <paper-input name="networkDesc" label="Description"></paper-input>
       <paper-input name="networkTags" label="Tags"></paper-input>
-      <paper-toggle-button></paper-toggle-button>Private Network
+      <br>
+      <paper-toggle-button></paper-toggle-button> Private Network
+      <br>
+      <br>
       <paper-button id="create-btn" raised>Create Network</paper-button>
     </form>
+
+
 
   </template>
 </dom-module>
@@ -38,17 +49,13 @@
       },
 
       handleSubmit: function() {
-        console.log(document.getElementById('create-form').serialize());
-        //TODO: Form post is buggy!
-        document.getElementById('create-form').submit(); //submits serialized json as post request
-
-
-        //page('/networks/'+networkID);
+        console.log(this.$['create-form'].serialize());
+        this.$['create-form'].submit(); //submits serialized json as post request
       },
 
       handleFormResponse: function(e) {
         console.log(e.detail.message);
-        page('/networks/'+e.detail.message);
+        page('/users/networks/'+e.detail.message);
       }
 
     });
