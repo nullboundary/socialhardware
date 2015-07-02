@@ -11,9 +11,9 @@
   app.addEventListener('dom-change', function() {
     console.log('Our app is ready to rock!');
 
-    if (sessionStorage.getItem("token")) {
-      page('/users');
-    }
+  //  if (sessionStorage.getItem("token")) {
+  //    page('/users');
+  //  }
 
 
   });

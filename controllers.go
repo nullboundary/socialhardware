@@ -9,6 +9,7 @@ import (
 
 	"bitbucket.org/cicadaDev/utils"
 	"code.google.com/p/go.crypto/bcrypt"
+	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
@@ -29,7 +30,7 @@ func login(c *gin.Context) {
 
 	user := newUser() //store user info retrieved from DB
 
-	_, err := db.FindById("users", loginInfo.Email, user)
+	_, err := db.FindByIdx("users", "email", loginInfo.Email, user)
 	if err != nil {
 		log.Println(err)
 		status := http.StatusUnauthorized
@@ -44,7 +45,7 @@ func login(c *gin.Context) {
 		return
 	}
 
-	jwt, err := createJWToken("token", []byte(jWTokenKey), loginInfo.Email)
+	jwt, err := createJWToken("token", []byte(jWTokenKey), user.ID)
 	if err != nil {
 		log.Println(err)
 		status := http.StatusInternalServerError
@@ -53,7 +54,7 @@ func login(c *gin.Context) {
 	}
 
 	//return token as json
-	c.JSON(http.StatusOK, jwt)
+	c.JSON(http.StatusOK, gin.H{"user": user.ID, "jwt": jwt})
 }
 
 //signup is the request handler for posting user signup details
@@ -69,10 +70,12 @@ func signup(c *gin.Context) {
 
 	user := newUser() //store user info retrieved from DB
 
+	user.ID = fmt.Sprintf("%d", utils.GenerateFnvHashID(time.Now().String()))
 	user.setPassword(loginInfo.Password)
 	user.Email = loginInfo.Email
 	user.Created = time.Now()
 	user.Verified = false
+	//TODO: add one default stream for a new user
 
 	err := db.Add("users", user)
 	if err != nil {
@@ -106,81 +109,38 @@ func verify(c *gin.Context) {
 		return
 	}
 
+	//TODO change verification status for user in DB
+
 	c.JSON(http.StatusOK, gin.H{"message": emailAddr, "status": http.StatusOK})
 }
 
-func createNetwork(c *gin.Context) {
+//getUser returns a specific user as json
+func getUser(c *gin.Context) {
 	db := getDB(c)
+	//userID := c.Param("ID")
+	userData := newUser()
 
-	newNet := newNetwork()
+	jwToken := c.MustGet("jwt").(*jwt.Token)
+	jwtUser := jwToken.Claims["sub"].(string)
 
-	c.BindJSON(&newNet)
-	newNet.NetworkID = fmt.Sprintf("%d", utils.GenerateFnvHashID(time.Now().String()))
-	newNet.NetworkAdmin = 
-	//newNet.NetworkStreams = []string{}
-	//newNet.NetworkTriggers = []trigger{}
-
-	err := db.Add("networks", newNet)
-	if err != nil {
-		status := http.StatusInternalServerError
-		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
-		return
-	}
-
-	c.JSON(http.StatusCreated, gin.H{"message": newNet.NetworkID, "status": http.StatusCreated})
-}
-
-//getNetwork returns a specific network as json
-func getNetwork(c *gin.Context) {
-	db := getDB(c)
-	netID := c.Param("ID")
-	net := newNetwork()
-
-	if ok, _ := db.FindById("networks", netID, &net); !ok {
+	if ok, _ := db.FindById("users", jwtUser, &userData); !ok {
 		status := http.StatusNotFound
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
 	}
 
-	/*userID := c.MustGet("jwt").(string)
-
-	if net.NetworkAdmin != userID {
-		status := http.StatusNotFound
-		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
-		return
-	} */
-
-	//render network struct
-	c.JSON(http.StatusOK, net)
+	//render user struct
+	c.JSON(http.StatusOK, userData)
 }
 
-//getAllNetworks returns all data networks for a particular user
-
-/*
-func getAllNetworks(c *gin.Context) {
+func deleteUser(c *gin.Context) {
 	db := getDB(c)
-	netID := c.Param("ID")
-	networkList := []network{}
+	//userID := c.Param("ID")
 
-	filter := map[string]string{"field": "networkAdmin", "value": netID}
+	jwToken := c.MustGet("jwt").(*jwt.Token)
+	jwtUser := jwToken.Claims["sub"].(string)
 
-	//found false continues with empty struct. Error returns error message.
-	_, err := db.FindAllEq("networks", filter, &networkList)
-	if err != nil {
-		status := http.StatusInternalServerError
-		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
-		return
-	}
-
-	//render streams list
-	c.JSON(http.StatusOK, streamList)
-} */
-
-func deleteNetwork(c *gin.Context) {
-	db := getDB(c)
-	netID := c.Param("ID")
-
-	err := db.DelById("networks", netID)
+	err := db.DelById("users", jwtUser)
 	if err != nil {
 		status := http.StatusNotFound
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
@@ -191,17 +151,22 @@ func deleteNetwork(c *gin.Context) {
 	c.JSON(http.StatusNoContent, gin.H{"message": http.StatusText(http.StatusNoContent), "status": http.StatusNoContent})
 }
 
-//createStream creates a new empty data stream and adds it to the current network
+//createStream creates a new empty data stream and adds it to the current user account
 func createStream(c *gin.Context) {
 	db := getDB(c)
+	//userID := c.Param("ID")
+	jwToken := c.MustGet("jwt").(*jwt.Token)
+	jwtUser := jwToken.Claims["sub"].(string)
+
 	newStream := newStream()
 	newStream.StreamAccess = true //default to public, unless reset in bind below
+
 	c.BindJSON(&newStream)
-	netID := c.Param("ID")
-	newStream.NetworkID = netID
+
+	newStream.StreamAdmin = jwtUser
 	newStream.StreamID = fmt.Sprintf("%d", utils.GenerateFnvHashID(time.Now().String()))
 
-	err := db.Add("streams", newStream)
+	_, err := db.ArrayAppend("users", jwtUser, "streams", newStream.StreamID)
 	if err != nil {
 		log.Printf("[ERROR] %s", err)
 		status := http.StatusInternalServerError
@@ -209,7 +174,7 @@ func createStream(c *gin.Context) {
 		return
 	}
 
-	_, err = db.ArrayAppend("networks", netID, "networkStreams", newStream.StreamID)
+	err = db.Add("streams", newStream)
 	if err != nil {
 		log.Printf("[ERROR] %s", err)
 		status := http.StatusInternalServerError
@@ -221,20 +186,31 @@ func createStream(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": newStream.StreamID, "status": http.StatusCreated})
 }
 
-//addStream adds a pre-existing public stream to a network
+//addStream adds a pre-existing public stream to a user account
 func addStream(c *gin.Context) {
 	db := getDB(c)
-	netID := c.Param("ID")
+	//userID := c.Param("ID")
+	jwToken := c.MustGet("jwt").(*jwt.Token)
+	jwtUser := jwToken.Claims["sub"].(string)
 	streamID := c.Param("STREAMID")
 	stream := newStream()
 
+	//find the stream
 	if ok, _ := db.FindById("streams", streamID, &stream); !ok {
 		status := http.StatusNotFound
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
 	}
 
-	_, err := db.ArrayAppend("networks", netID, "networkStreams", streamID)
+	//if private, abort
+	if !stream.StreamAccess {
+		status := http.StatusNotFound
+		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
+		return
+	}
+
+	//add stream to user account
+	_, err := db.ArrayAppend("users", jwtUser, "streams", streamID)
 	if err != nil {
 		log.Printf("[ERROR] %s", err)
 		status := http.StatusInternalServerError
@@ -249,92 +225,173 @@ func addStream(c *gin.Context) {
 //getStream returns a specific data stream as a json document
 func getStream(c *gin.Context) {
 	db := getDB(c)
+	//userID := c.Param("ID")
 	streamID := c.Param("STREAMID")
 	stream := newStream()
 
+	//TODO
+	//if user id from url == jwt id. allow acces to stream if private
+	jwToken := c.MustGet("jwt").(*jwt.Token)
+	jwtUser := jwToken.Claims["sub"].(string)
+
+	//Find the stream
 	if ok, _ := db.FindById("streams", streamID, &stream); !ok {
 		status := http.StatusNotFound
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
 	}
 
+	//owner of this stream is not logged in user
+	if stream.StreamAdmin != jwtUser {
+		if !stream.StreamAccess { //and if private
+			status := http.StatusNotFound
+			c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
+			return
+		}
+	}
+	//}
+
 	//render stream struct
 	c.JSON(http.StatusOK, stream)
 }
 
-//getAllStreams returns all data streams for a particular network
+//getAllStreams returns all data streams for a particular user account
 func getAllStreams(c *gin.Context) {
 	db := getDB(c)
-	netID := c.Param("ID")
+	//userID := c.Param("ID")
+	userData := newUser()
 	streamList := []stream{}
 
-	filter := map[string]string{"field": "networkId", "value": netID}
+	jwToken := c.MustGet("jwt").(*jwt.Token)
+	jwtUser := jwToken.Claims["sub"].(string)
 
-	//found false continues with empty struct. Error returns error message.
-	_, err := db.FindAllEq("streams", filter, &streamList)
-	if err != nil {
-		status := http.StatusInternalServerError
-		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
-		return
-	}
+	log.Printf("getAllStream: %s", jwtUser)
+	//TODO: 2 db queries can probably be merged using a join or something
 
-	//render streams list
-	c.JSON(http.StatusOK, streamList)
-}
-
-//removeStream removes a specific data stream from current network
-//The opposite of add stream.
-func removeStream(c *gin.Context) {
-	db := getDB(c)
-	netID := c.Param("ID")
-	streamID := c.Param("STREAMID")
-
-	//TODO: Find index in array to delete by for trigger.
-	_, err := db.ArrayDeleteAt("networks", netID, "networkStreams", 0)
-	if err != nil {
-		status := http.StatusInternalServerError
-		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
-		return
-	}
-
-	//return deleted message
-	c.JSON(http.StatusNoContent, gin.H{"message": http.StatusText(http.StatusNoContent), "status": http.StatusNoContent})
-}
-
-//deleteStream deletes a specific data stream from the database
-func deleteStream(c *gin.Context) {
-	db := getDB(c)
-	streamID := c.Param("STREAMID")
-
-	err := db.DelById("streams", streamID)
-	if err != nil {
+	if ok, _ := db.FindById("users", jwtUser, &userData); !ok {
 		status := http.StatusNotFound
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
 	}
 
-	//TODO: delete stream from streamid array in network! Or leave it and display "No longer available"
-	//TODO: Find index in array to delete by for trigger.
-	_, err := db.ArrayDeleteAt("networks", netID, "networkStreams", 0)
+	if len(userData.Streams) > 0 { //only search if there are streams listed
+		_, err := db.FindAllById("streams", userData.Streams, &streamList)
+		if err != nil {
+			status := http.StatusInternalServerError
+			c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
+			return
+		}
+	}
+	/*
+		filter := map[string]string{"field": "streamAdmin", "value": userID}
+		//found false continues with empty struct. Error returns error message.
+		_, err := db.FindAllEq("streams", filter, &streamList)
+		if err != nil {
+			status := http.StatusInternalServerError
+			c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
+			return
+		}
+	*/
+	//render streams list
+	c.JSON(http.StatusOK, streamList)
+}
+
+//removeStream removes a specific data stream from current user account
+//The opposite of add stream.
+func removeStream(c *gin.Context) {
+	db := getDB(c)
+	//userID := c.Param("ID")
+	streamID := c.Param("STREAMID")
+
+	jwToken := c.MustGet("jwt").(*jwt.Token)
+	jwtUser := jwToken.Claims["sub"].(string)
+
+	_, err := db.ArrayDeleteById("users", jwtUser, "streams", streamID)
 	if err != nil {
-		status := http.StatusInternalServerError
+		log.Printf("[ERROR] %s", err)
+		status := http.StatusNotFound
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
 	}
 
 	//return deleted message
-	c.JSON(http.StatusNoContent, gin.H{"message": http.StatusText(http.StatusNoContent), "status": http.StatusNoContent})
+	c.Data(204, gin.MIMEJSON, nil)
+	//c.JSON(http.StatusNoContent, gin.H{"message": http.StatusText(http.StatusNoContent), "status": http.StatusNoContent})
+}
+
+//deleteStream deletes a specific data stream from the database
+func deleteStream(c *gin.Context) {
+	db := getDB(c)
+	//userID := c.Param("ID")
+	streamID := c.Param("STREAMID")
+	stream := newStream()
+
+	jwToken := c.MustGet("jwt").(*jwt.Token)
+	jwtUser := jwToken.Claims["sub"].(string)
+
+	_, err := db.ArrayDeleteById("users", jwtUser, "streams", streamID)
+	if err != nil {
+		log.Printf("[ERROR] %s", err)
+		status := http.StatusNotFound
+		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
+		return
+	}
+
+	//Find the stream
+	if ok, _ := db.FindById("streams", streamID, &stream); !ok {
+		status := http.StatusNotFound
+		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
+		return
+	}
+
+	//TODO: This can probably be combined in ReQL with findbyID, check ownership then delete
+	if stream.StreamAdmin == jwtUser {
+		err = db.DelById("streams", streamID)
+		if err != nil {
+			log.Printf("[ERROR] %s", err)
+			status := http.StatusNotFound
+			c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
+			return
+		}
+	}
+
+	//return deleted message
+	c.Data(204, gin.MIMEJSON, nil)
+	//c.JSON(http.StatusNoContent, gin.H{"message": http.StatusText(http.StatusNoContent), "status": http.StatusNoContent})
 }
 
 //createDataPoint adds a new datapoint to the db for a particular stream
+//
+// curl -X POST -H "Content-Type: application/json" http://localhost:8000/api/v1/users/210204461/streams/3568448099/data \
+//   -H "Authorization: Bearer <token>" -d '{"value":"21"}'
 func createDataPoint(c *gin.Context) {
 
 	streamID := c.Param("STREAMID")
 
 	db := getDB(c)
+	stream := newStream()
+
+	jwToken := c.MustGet("jwt").(*jwt.Token)
+	jwtUser := jwToken.Claims["sub"].(string)
 
 	dataPoint := newDataPoint()
 	c.BindJSON(&dataPoint)
+
+	//TODO: Can this be combined with add? Find and Add?
+	//Find the stream
+	if ok, _ := db.FindById("streams", streamID, &stream); !ok {
+		status := http.StatusNotFound
+		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
+		return
+	}
+
+	//can't add data if you don't own the stream
+	if stream.StreamAdmin != jwtUser {
+		log.Println("[ERROR] user not authorized:" + jwtUser)
+		status := http.StatusUnauthorized
+		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
+		return
+	}
 
 	dataPoint.StreamID = streamID
 
@@ -361,9 +418,30 @@ func createDataPoint(c *gin.Context) {
 func getAllDataPoints(c *gin.Context) {
 	db := getDB(c)
 	streamID := c.Param("STREAMID")
-	dataPoints := []dataPoint{}
-	filter := map[string]string{"field": "streamId", "value": streamID}
+	stream := newStream()
 
+	jwToken := c.MustGet("jwt").(*jwt.Token)
+	jwtUser := jwToken.Claims["sub"].(string)
+
+	dataPoints := []dataPoint{}
+
+	//Find stream
+	if ok, _ := db.FindById("streams", streamID, &stream); !ok {
+		status := http.StatusNotFound
+		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
+		return
+	}
+
+	//owner of this stream is not logged in user
+	if stream.StreamAdmin != jwtUser {
+		if !stream.StreamAccess { //and if private
+			status := http.StatusNotFound
+			c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
+			return
+		}
+	}
+
+	filter := map[string]string{"field": "streamId", "value": streamID}
 	//found false continues with empty struct. Error returns error message.
 	_, err := db.FindAllEq("dataPoints", filter, &dataPoints)
 	if err != nil {
@@ -376,7 +454,7 @@ func getAllDataPoints(c *gin.Context) {
 	c.JSON(http.StatusOK, dataPoints)
 }
 
-//createTrigger adds a new conditional trigger to a network
+//createTrigger adds a new conditional trigger to a user account
 func createTrigger(c *gin.Context) {
 	db := getDB(c)
 	newTrigger := newTrigger()
@@ -384,9 +462,11 @@ func createTrigger(c *gin.Context) {
 	c.BindJSON(&newTrigger)
 	newTrigger.TriggerID = fmt.Sprintf("%d", utils.GenerateFnvHashID(time.Now().String()))
 
-	netID := c.Param("ID")
+	jwToken := c.MustGet("jwt").(*jwt.Token)
+	jwtUser := jwToken.Claims["sub"].(string)
+	//userID := c.Param("ID")
 
-	_, err := db.ArrayAppend("networks", netID, "networkTriggers", newTrigger)
+	_, err := db.ArrayAppend("users", jwtUser, "triggers", newTrigger)
 	if err != nil {
 		log.Printf("[ERROR] %s", err)
 		status := http.StatusInternalServerError
@@ -398,19 +478,22 @@ func createTrigger(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": newTrigger.TriggerID, "status": http.StatusCreated})
 }
 
-//getAllTriggers returns a list of all triggers for a network
+//getAllTriggers returns a list of all triggers for a user account
 func getAllTriggers(c *gin.Context) {
 	db := getDB(c)
-	netID := c.Param("ID")
-	net := newNetwork()
+	//userID := c.Param("ID")
+	userData := newUser()
 
-	if ok, _ := db.FindById("networks", netID, &net); !ok {
+	jwToken := c.MustGet("jwt").(*jwt.Token)
+	jwtUser := jwToken.Claims["sub"].(string)
+
+	if ok, _ := db.FindById("users", jwtUser, &userData); !ok {
 		status := http.StatusNotFound
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
 	}
 
-	triggerList := net.NetworkTriggers //better to filter in db?
+	triggerList := userData.Triggers
 
 	//render trigger list
 	c.JSON(http.StatusOK, triggerList)
@@ -420,14 +503,17 @@ func getAllTriggers(c *gin.Context) {
 //modifyTrigger changes a triggers values/settings
 func modifyTrigger(c *gin.Context) {
 	db := getDB(c)
-	netID := c.Param("ID")
+	//userID := c.Param("ID")
+
+	jwToken := c.MustGet("jwt").(*jwt.Token)
+	jwtUser := jwToken.Claims["sub"].(string)
 
 	triggerID := c.Param("TRIGGERID")
 	trigger := newTrigger()
 	c.BindJSON(&trigger)
 
-	//TODO: find trigger in network trigger array. Replace it.
-	_, err := db.ArrayAppend("networks", netID, "networkTriggers", trigger)
+	//TODO: find trigger in user trigger array. Replace it.
+	_, err := db.ArrayAppend("users", jwtUser, "triggers", trigger)
 	if err != nil {
 		status := http.StatusInternalServerError
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
@@ -438,15 +524,18 @@ func modifyTrigger(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": triggerID, "status": http.StatusOK})
 }
 
-//deleteTrigger removes a pre-existing trigger from a network
+//deleteTrigger removes a pre-existing trigger from a user account
 func deleteTrigger(c *gin.Context) {
 	db := getDB(c)
-	netID := c.Param("ID")
-	//triggerID := c.Param("TRIGGERID")
+	//userID := c.Param("ID")
+
+	jwToken := c.MustGet("jwt").(*jwt.Token)
+	jwtUser := jwToken.Claims["sub"].(string)
+
+	triggerID := c.Param("TRIGGERID")
 	//trigger := newStream()
 
-	//TODO: Find index in array to delete by for trigger.
-	_, err := db.ArrayDeleteAt("networks", netID, "networkTriggers", 0)
+	_, err := db.ArrayDeleteById("users", jwtUser, "triggers", triggerID)
 	if err != nil {
 		status := http.StatusInternalServerError
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
@@ -454,7 +543,9 @@ func deleteTrigger(c *gin.Context) {
 	}
 
 	//return deleted message
-	c.JSON(http.StatusNoContent, gin.H{"message": http.StatusText(http.StatusNoContent), "status": http.StatusNoContent})
+	//c.JSON(http.StatusNoContent, gin.H{"message": http.StatusText(http.StatusNoContent), "status": http.StatusNoContent})
+	c.Data(http.StatusNoContent, gin.MIMEJSON, nil)
+
 }
 
 //handleWebSocket handles incoming requests to setup a websocket
@@ -463,6 +554,26 @@ func handleWebSocket(c *gin.Context) {
 
 	db := getDB(c)
 	streamID := c.Param("STREAMID")
+	stream := newStream()
+
+	jwToken := c.MustGet("jwt").(*jwt.Token)
+	jwtUser := jwToken.Claims["sub"].(string)
+
+	//Find stream
+	if ok, _ := db.FindById("streams", streamID, &stream); !ok {
+		status := http.StatusNotFound
+		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
+		return
+	}
+
+	//owner of this stream is not logged in user
+	if stream.StreamAdmin != jwtUser {
+		if !stream.StreamAccess { //and if private
+			status := http.StatusNotFound
+			c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
+			return
+		}
+	}
 
 	//upgrade to websocket connection
 	ws, err := wsupgrader.Upgrade(c.Writer, c.Request, nil)
@@ -474,35 +585,43 @@ func handleWebSocket(c *gin.Context) {
 
 	go reader(ws)
 
-	feedData, err := db.ChangesByIdx("dataPoints", "streamId", streamID, 1) //TODO: Filter per stream or network
+	//go writer(ws) //recieve data from feedData channel ping until data recieved
+
+	feedData, err := db.ChangesByIdx("dataPoints", "streamId", streamID, 1) //TODO: Filter per stream or user
 	if err != nil {
-		fmt.Printf("[ERROR] feedData: %s", err)
+		log.Printf("[ERROR] feedData: %s", err)
 	}
 	defer feedData.Close()
 
 	var data dataPoint
 
-	for feedData.Next(&data) { //loops forever
+	for feedData.Next(&data) { //blocks forever
+
+		//TODO: write to channel
+
 		ws.SetWriteDeadline(time.Now().Add(time.Second * 10))
 		err := ws.WriteJSON(data)
 		if err != nil {
-			fmt.Println("[ERROR] writeJSON: %s", err.Error())
+			log.Println("[ERROR] writeJSON: %s", err.Error())
 			return
 		}
 	}
 	if feedData.Err() != nil {
-		fmt.Println(feedData.Err())
+		log.Printf("[ERROR] %s", feedData.Err())
 	}
 
 }
 
 //reader is used to read from a websocket
 func reader(ws *websocket.Conn) {
+	ws.SetReadLimit(512)
 	ws.SetReadDeadline(time.Now().Add(time.Second * 60))
+	ws.SetPongHandler(func(string) error { ws.SetReadDeadline(time.Now().Add(time.Second * 60)); return nil })
+
 	for {
 		_, _, err := ws.ReadMessage()
 		if err != nil {
-			fmt.Println("[ERROR] readMsg: %s", err.Error())
+			log.Println("[ERROR] readMsg: %s", err.Error())
 			break
 		}
 	}

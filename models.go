@@ -14,52 +14,43 @@ import (
 )
 
 type user struct {
+	ID        string    `json:"id" gorethink:"id"`                          //A unique ID for each user
 	Email     string    `json:"email" gorethink:"email" binding:"required"` //the users email works as an id
 	PassCrypt []byte    `json:"passcrypt,omitempty" gorethink:"passcrypt"`  //bcrypted password byte slice
 	Created   time.Time `json:"created,omitempty" gorethink:"created"`      //Date account was created
 	Verified  bool      `json:"verified,omitempty" gorethink:"verified"`    //is the account email verified?
-}
-
-//network is a group of streams, could also be called a project
-type network struct {
-	NetworkID       string    `json:"networkId" gorethink:"networkId"`                           //A unique ID for each network sending data
-	NetworkAdmin    string    `json:"networkAdmin,omitempty" gorethink:"networkAdmin,omitempty"` //owner of the network
-	NetworkName     string    `json:"networkName,omitempty" gorethink:"networkName,omitempty"`   //name of the network
-	NetworkDesc     string    `json:"networkDesc,omitempty" gorethink:"networkDesc,omitempty"`   //A wordy description of the sensor network
-	NetworkAccess   bool      `json:"networkAcess,omitempty" gorethink:"networkAcess,omitempty"` //true = public, false = private
-	NetworkTags     []string  `json:"networkTags,omitempty" gorethink:"networkTags,omitempty"`   //used for searching or catagorizing
-	NetworkStreams  []string  `json:"networkStreams,omitempty" gorethink:"networkStreams"`       //list of stream ids in this network
-	NetworkTriggers []trigger `json:"networkTriggers,omitempty" gorethink:"networkTriggers"`
+	Streams   []string  `json:"streams,omitempty" gorethink:"streams"`      //list of stream ids
+	Triggers  []trigger `json:"triggers,omitempty" gorethink:"triggers"`
 }
 
 //a stream represents a single stream of data from 1 stream
 type stream struct {
-	NetworkID    string    `json:"networkId" gorethink:"networkId"`                         //The network ID for the creator of this stream
-	StreamAdmin  string    `json:"streamAdmin,omitempty" gorethink:"streamAdmin,omitempty"` //owner of the stream
-	StreamID     string    `json:"streamId" gorethink:"streamId"`                           //A unique ID for each sensor sending data
-	StreamName   string    `json:"streamName,omitempty" gorethink:"streamName,omitempty"`   //A human readable name
-	StreamType   string    `json:"streamType,omitempty" gorethink:"streamType,omitempty"`   //The type of stream/sensor. Example: TGS2620 is a model of VOC air sensor
-	StreamDesc   string    `json:"streamDesc,omitempty" gorethink:"streamDesc,omitempty"`   //A wordy description of the particular data stream
-	StreamAccess bool      `json:"streamAcess,omitempty" gorethink:"streamAcess,omitempty"` //true = public, false = private
-	StreamLoc    *location `json:"streamLoc,omitempty" gorethink:"streamLoc,omitempty"`     //the lat long location of a stream
-	StreamTags   []string  `json:"streamTags,omitempty" gorethink:"streamTags,omitempty"`   //list of stream description tags
-
+	StreamAdmin  string    `json:"streamAdmin,omitempty" gorethink:"streamAdmin,omitempty"`   //owner of the stream
+	StreamID     string    `json:"id" gorethink:"id"`                                         //A unique ID for each sensor sending data
+	StreamName   string    `json:"streamName,omitempty" gorethink:"streamName,omitempty"`     //A human readable name
+	StreamType   string    `json:"streamType,omitempty" gorethink:"streamType,omitempty"`     //The type of stream/sensor. Example: TGS2620 is a model of VOC air sensor
+	StreamDesc   string    `json:"streamDesc,omitempty" gorethink:"streamDesc,omitempty"`     //A wordy description of the particular data stream
+	StreamAccess bool      `json:"streamAccess,omitempty" gorethink:"streamAccess,omitempty"` //true = public, false = private
+	StreamLoc    *location `json:"streamLoc,omitempty" gorethink:"streamLoc,omitempty"`       //the lat long location of a stream
+	StreamTags   []string  `json:"streamTags,omitempty" gorethink:"streamTags,omitempty"`     //list of stream description tags
 }
 
 type trigger struct {
-	StreamID         string   `json:"streamId" gorethink:"streamId"`   //A unique ID for each sensor sending data
-	TriggerID        string   `json:"triggerId" gorethink:"triggerId"` //A unique ID for each sensor sending data
-	TriggerType      string   `json:"triggerType" gorethink:"triggerType"`
-	TriggerHook      *webhook `json:"triggerHook" gorethink:"triggerHook"`
-	TriggerCondition string   `json:"triggerCond" gorethink:"triggerCond"` //a conditional statement
+	StreamID  string          `json:"streamId" gorethink:"streamId"`                   //A unique ID for each sensor sending data
+	TriggerID string          `json:"triggerId,omitempty" gorethink:"triggerId"`       //A unique ID for each sensor sending data
+	CondValue string          `json:"condValue" gorethink:"condValue"`                 //a conditional value
+	CondExpr  string          `json:"condExpr" gorethink:"condExpr"`                   //a conditional expression >= etc.
+	URL       string          `json:"url,omitempty" gorethink:"url,omitempty"`         //A url to send a request to if triggered
+	Method    string          `json:"method,omitempty" gorethink:"method,omitempty"`   //request method GET, POST, PUT, etc
+	Headers   string          `json:"headers,omitempty" gorethink:"headers,omitempty"` //HTTP headers to add to request
+	Body      json.RawMessage `json:"body,omitempty" gorethink:"body,omitempty"`       //raw json request input body for PUT, POST requests
 }
 
 type webhook struct {
-	URL     string          `json:"url,omitempty" gorethink:"url,omitempty"`         //A url to send a request to if triggered
-	Method  string          `json:"method,omitempty" gorethink:"method,omitempty"`   //GET, POST, PUT, etc
-	Headers http.Header     `json:"headers,omitempty" gorethink:"headers,omitempty"` //HTTP headers to add to request
-	Form    url.Values      `json:"form,omitempty" gorethink:"form,omitempty"`       //Form values
-	Body    json.RawMessage `json:"body,omitempty" gorethink:"body,omitempty"`       //raw json request input body for PUT, POST requests
+	URL     string      `json:"url,omitempty" gorethink:"url,omitempty"`         //A url to send a request to if triggered
+	Method  string      `json:"method,omitempty" gorethink:"method,omitempty"`   //GET, POST, PUT, etc
+	Headers http.Header `json:"headers,omitempty" gorethink:"headers,omitempty"` //HTTP headers to add to request
+	Form    url.Values  `json:"form,omitempty" gorethink:"form,omitempty"`       //Form values
 }
 
 //Location provides information about a stream location.
@@ -89,11 +80,6 @@ type value struct {
 
 func newUser() *user {
 	return &user{}
-}
-
-//	newNetwork returns a pointer to a network struct.
-func newNetwork() *network {
-	return &network{}
 }
 
 //	newStream returns a pointer to a stream struct.

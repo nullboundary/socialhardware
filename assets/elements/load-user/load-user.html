@@ -1,0 +1,199 @@
+<dom-module id="load-user">
+  <style>
+    :host {
+      display: block;
+    }
+
+    .dark-container {
+      background-color: var(--load-user-dark-container-background-color);
+      color: var(--load-user-dark-container-color);
+      font: var(--load-user-dark-container-font);
+    }
+  </style>
+
+  <template>
+
+    <style>
+    .title {
+        display: inline-flex;
+        padding-left: 1.4em;
+        padding-top: 1em;
+        padding-bottom: 1em;
+        font: var(--paper-font-subhead);
+      }
+      /* FIXME: this should come from the host css somehow?!? */
+
+      .vertical-section {
+        background-color: white;
+        padding: 24px;
+        margin: 0 24px 24px 24px;
+        @apply(--shadow-elevation-2dp);
+      }
+
+      .horizontal-section {
+        background-color: white;
+        padding: 24px;
+        margin-right: 24px;
+        min-width: 200px;
+        @apply(--shadow-elevation-2dp);
+      }
+
+      .centered {
+        max-width: 400px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+    }
+    </style>
+
+    <!--  <paper-material elevation="1"> -->
+
+    <h2 class="title">
+      User -
+      <span>{{userid}}</span>
+    </h2>
+    <paper-button id="create-stream-btn" raised>Create Stream</paper-button>
+    <!--  </paper-material> -->
+
+    <!--<paper-material elevation="1">-->
+    <div class="dark-container">
+      <paper-icon-button icon="menu" on-tap="handleTriggerToggle"></paper-icon-button>
+      Add Trigger
+      <iron-collapse id="add-trigger-1">
+        <div class="vertical-section centered dark-container">
+          <create-trigger streams="{{streams}}" userid="{{userid}}"></create-trigger>
+
+        </div>
+      </iron-collapse>
+    </div>
+
+    <!--</paper-material>-->
+
+    <template is="dom-repeat" items="{{streams}}">
+
+      <paper-material elevation="1">
+        <paper-icon-button icon="menu" on-tap="handleToggle"></paper-icon-button>
+        <div class="title">streamID:
+          <span>{{item.id}}</span>
+        </div>
+        <paper-button id="delbtn" on-tap="handleDelete" streamid="{{item.id}}" raised>Delete</paper-button>
+
+        <iron-collapse id="{{computeCollapseId(index)}}" opened>
+
+          <line-chart width="80%" height="100%" userid="{{item.streamAdmin}}" streamid="{{item.id}}"></line-chart>
+          <iron-ajax id="del-ajax" method="DELETE" url="" handle-as="json" headers="" on-error="handleError" on-response="handleResponse" debounce-duration="300">
+          </iron-ajax>
+
+        </iron-collapse>
+      </paper-material>
+
+    </template>
+
+
+  </template>
+</dom-module>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.min.js" charset="utf-8"></script>
+<script>
+  (function() {
+
+    Polymer({
+      is: 'load-user',
+
+      properties: {
+        userid: String, //the id for this user
+        streams: {
+          type: Object,
+          reflectToAttribute: true,
+          notify: true,
+          observer: '_streamChanged'
+        }
+      },
+
+      listeners: {
+        'create-stream-btn.tap': 'handleStreamTap',
+      },
+
+
+
+      attached: function() {
+        this.loadStreamList();
+      },
+
+      computeCollapseId: function(index) {
+        return "collapse" + index;
+      },
+
+      handleToggle: function(e) {
+        var collapseElm = document.querySelector('#collapse' + e.model.index);
+        collapseElm.toggle();
+      },
+
+      handleTriggerToggle: function(e) {
+        var collapseTrigger = this.$['add-trigger-1'] //document.querySelector('#add-trigger-1');
+        collapseTrigger.toggle();
+      },
+
+      handleStreamTap: function() {
+        var poly = this;
+
+        //TODO: replace with polymer ajax method
+        d3.json('/api/v1/users/' + this.userid + '/streams')
+          .header("Content-Type", "application/json")
+          .header("Authorization", "Bearer " + poly.getJWToken())
+          .post(JSON.stringify({}), function(error, data) {
+            //request server error
+            if (error) {
+              console.log(error);
+              return;
+            }
+            poly.loadStreamList(); //TODO: or just return the new stream id?
+          });
+
+      },
+      _streamChanged: function(newValue, oldValue) {
+      console.log(newValue); //could do something here
+      },
+      handleDelete: function(e) {
+        var itemID = this.$$('#delbtn').streamid;
+        this.$$('#del-ajax').url = "//localhost:8000/api/v1/users/" + this.userid + "/streams/" + itemID;
+        var auth = '{"Authorization": "Bearer ' + this.getJWToken() + '"}';
+        this.$$('#del-ajax').headers = JSON.parse(auth);
+        this.$$('#del-ajax').generateRequest();
+      },
+      handleResponse: function(request) {
+        this.loadStreamList(); //TODO: or just return the new stream id?
+      },
+      handleError: function(request, error) {
+        console.log(error.error);
+      },
+      loadStreamList: function() {
+        var poly = this;
+
+        //load list of streams
+        //TODO: replace with polymer ajax method
+        d3.json('/api/v1/users/' + this.userid + '/streams')
+          .header("Authorization", "Bearer " + poly.getJWToken())
+          .get(function(error, data) {
+
+            //request server error
+            if (error) {
+              console.log(error);
+              return;
+            }
+            console.log(JSON.stringify(data));
+
+            poly.streams = data;
+          });
+      },
+
+      getJWToken: function() {
+        if (sessionStorage.getItem("token")) {
+          return sessionStorage.getItem("token");
+        }
+      }
+
+
+    });
+
+  })();
+</script>

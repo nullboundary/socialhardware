@@ -1,24 +1,55 @@
 <dom-module id="find-stream">
-    <style>
-      :host {
-        display: block;
-      }
-
-    </style>
+  <style>
+    :host {
+      display: block;
+    }
+  </style>
   <template>
 
-    <h1>Search For A Network</h1>
+    <style>
+      #load-btn {
+        left: 100%;
+        bottom: 55px;
+      }
+    </style>
+
+    <h1>Search For A Data Stream</h1>
+    <!--<paper-input error-message="Stream IDs are 10 digit numbers" label="Stream ID" id="loadInput" bind-value="{{streamid}}" pattern="[0-9]*"></paper-input>-->
     <paper-input-container auto-validate="true">
-      <label>Network ID</label>
+      <label>Stream ID</label>
       <input is="iron-input" id="load-input" bind-value="{{streamid}}" pattern="[0-9]*">
-      <paper-input-error>Network IDs are 10 digit numbers</paper-input-error>
+      <paper-input-error id="loadError">Stream IDs are 10 digit numbers</paper-input-error>
     </paper-input-container>
-    <br>
-    <paper-button id="load-btn" raised>Search</paper-button>
+
+    <iron-ajax id="loadAjax" url="" handle-as="json" headers="" on-error="handleError" last-response="{{ajaxResponse}}" debounce-duration="300">
+    </iron-ajax>
+    <paper-fab id="load-btn" icon="search"></paper-fab>
+
+    <section class="flex layout horizontal wrap">
+      <template is="dom-if" if="[[ajaxResponse]]">
+        <paper-item>
+          <paper-item-body two-line class="layout vertical">
+            <div>Stream ID:
+              <span>{{ajaxResponse.id}}</span>
+            </div>
+            <div secondary>Stream Admin:
+              <span>{{ajaxResponse.streamAdmin}}</span>
+            </div>
+          </paper-item-body>
+          <iron-ajax id="add-ajax" method="PUT" url="" handle-as="json" headers="" on-response="handleresponse" debounce-duration="300">
+          </iron-ajax>
+          <paper-fab on-tap="addAjaxHandler" icon="add" item-icon></paper-fab>
+        </paper-item>
+      </template>
+    <!--     <template is="dom-if" if="[[ajaxError]]">
+     <paper-input-error>{{ajaxError.error}}</paper-input-error>
+        <div><span>{{ajaxError.error}}</span></div>
+      </template> -->
+    </section>
 
   </template>
 </dom-module>
-  <script>
+<script>
   (function() {
     Polymer({
       is: 'find-stream',
@@ -26,32 +57,59 @@
       properties: {
         streamid: {
           type: Number
-        //  observer: 'inputChanged'
-        }
+            //  observer: 'inputChanged'
+        },
+        userid: String //the id for this user
       },
       behaviors: [
         Polymer.IronFitBehavior
       ],
       listeners: {
-        'load-btn.click': 'handleClick'
+        'load-btn.tap': 'loadAjaxHandler',
+        'add-btn.tap': 'addAjaxHandler'
       },
-
-      handleClick: function() {
-        var streamidID = this.streamid;
-        console.log(streamidID);
-        //page('/users/networks/'+networkID);
+      loadAjaxHandler: function() {
+        this.$.loadAjax.url = "//localhost:8000/api/v1/streams/" + this.streamid;
+        var auth = '{"Authorization": "Bearer ' + this.getJWToken() + '"}';
+        this.$.loadAjax.headers = JSON.parse(auth);
+        this.$.loadAjax.generateRequest();
       },
+      addAjaxHandler: function() {
+          console.log("addAjaxHandler!");
+        this.$$('#add-ajax').url = "//localhost:8000/api/v1/users/" + this.userid + "/streams/" + this.streamid;
+        var auth = '{"Authorization": "Bearer ' + this.getJWToken() + '"}';
+        this.$$('#add-ajax').headers = JSON.parse(auth);
+        this.$$('#add-ajax').generateRequest();
+      },
+      handleError: function(request, error) {
+        console.log(error.error);
+        console.log(this.$.loadError.update);
+        //{value: "Stream not found.",invalid: true}
+        this.$.loadError.update({value: "Stream not found.",invalid: true})
+      //  this.$.loadInput.errorMessage = "Stream not found."//error.error;
+      //  this.$.loadInput.invalid = true;
+      },
+      handleresponse: function(request) {
+        console.log(request.detail.response);
+        console.log(this.$.loadAjax.lastResponse);
 
-    //  inputChanged: function() {
-    //    var networkID = this.netid;
-    //    console.log(networkID);
-        //page('/networks/'+networkID);
-    //  }
+      },
+      getJWToken: function() { //todo this is copied from load-user, find a another way to share the function?
+        if (sessionStorage.getItem("token")) {
+          return sessionStorage.getItem("token");
+        }
+      }
+
+      //  inputChanged: function() {
+      //    var networkID = this.netid;
+      //    console.log(networkID);
+      //page('/networks/'+networkID);
+      //  }
 
     });
 
 
 
 
-    })();
-  </script>
+  })();
+</script>

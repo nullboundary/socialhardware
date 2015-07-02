@@ -29,40 +29,41 @@
   <template>
     <paper-material elevation="1">
       <div class="container">
-        <form center class="sized" is="iron-form" id="create-form" method="POST" action="{{computeFormURL(netid)}}">
+        <iron-ajax id="triggerAjax" method="POST" url="{{computeFormURL(userid)}}" handle-as="json" headers="" on-error="handleError" on-response="handleResponse" debounce-duration="300">
+        </iron-ajax>
+        <form center class="sized" is="iron-form" id="create-form">
           <label>Stream </label>
-          <select class="streamlist">
+          <select name="streamId" class="streamlist">
             <template is="dom-repeat" items="{{streams}}">
-              <option>{{item.streamId}}</option>
+              <option>{{item.id}}</option>
             </template>
           </select>
           <br>
           <br>
           <label>Conditional </label>
-          <select name="triggerType">
+          <select name="condExpr">
             <option value="gt">Greater Than</option>
             <option value="lt">Less Than</option>
             <option value="eq">Equal To</option>
             <option value="regex">Regex</option>
           </select>
-          <paper-input name="condition-value" label="Condition Value"></paper-input>
+          <paper-input name="condValue" label="Condition Value"></paper-input>
           <br>
           <br>
           <label>Request Method </label>
-          <select name="requestMethod">
+          <select name="method">
             <option value="GET">GET</option>
             <option value="POST">POST</option>
             <option value="PUT">PUT</option>
             <option value="PATCH">PATCH</option>
             <option value="DELETE">DELETE</option>
           </select>
-          <paper-input name="request-url" label="Request URL"></paper-input>
-          <paper-input name="request-headers" label="Request Headers"></paper-input>
-          <paper-input name="request-body" label="Json Request Body"></paper-input>
+          <paper-input name="url" label="Request URL"></paper-input>
+          <paper-input name="headers" label="Request Headers"></paper-input>
+          <paper-input name="body" label="Json Request Body"></paper-input>
           <br>
-          <!--<paper-button id="create-btn" raised>Create Trigger</paper-button>-->
-          <paper-fab icon="add" id="create-btn"></paper-fab>
         </form>
+        <paper-fab icon="add" id="create-btn"></paper-fab>
       </div>
     </paper-material>
 
@@ -76,36 +77,55 @@
       is: 'create-trigger',
 
       properties: {
-        netid: {
+        userid: {
           type: Number
             //  observer: 'inputChanged'
-        }
+        },
+        streams: Array
       },
       behaviors: [
         Polymer.IronFitBehavior
       ],
       listeners: {
-        'create-btn.click': 'handleSubmit',
-        'iron-form-response': 'handleFormResponse'
+        'create-btn.tap': 'handleSubmit',
       },
 
       handleSubmit: function() {
-        console.log(document.getElementById('create-form').serialize());
-        //TODO: Form post is buggy!
-        document.getElementById('create-form').submit(); //submits serialized json as post request
+        console.log(this.$['create-form'].serialize());
+        var auth = '{"Authorization": "Bearer ' + this.getJWToken() + '"}';
+        this.$.triggerAjax.headers = JSON.parse(auth);
+        this.$.triggerAjax.body = JSON.stringify(this.$['create-form'].serialize());
+        this.$.triggerAjax.generateRequest();
 
+        //this.$['create-form'].contentType = 'application/json';
 
+        //this.$['create-form'].submit();
+        //document.getElementById('create-form').submit(); //submits serialized json as post request
         //page('/networks/'+networkID);
       },
 
       computeFormURL: function(netid) {
-        return "/api/v1/networks/" + netid + "/triggers"
+        var requestURL = "/api/v1/users/" + netid + "/triggers";
+        console.log(requestURL);
+        return requestURL;
       },
 
+      handleError: function(request, error) {
+        console.log(error.error);
+        console.log(this.$.loadError.update);
+        //{value: "Stream not found.",invalid: true}
+      //  this.$.loadInput.errorMessage = "Stream not found."//error.error;
+      //  this.$.loadInput.invalid = true;
+      },
 
-      handleFormResponse: function(e) {
-        console.log(e.detail.message);
+      handleResponse: function(e) {
+        console.log(e);
 
+      },
+      getJWToken: function() { //todo this is copied from load-user, find a another way to share the function?
+        if (sessionStorage.getItem("token")) {
+          return sessionStorage.getItem("token");
+        }
       }
 
     });

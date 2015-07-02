@@ -31,10 +31,7 @@ func main() {
 	users := router.Group("/users")
 	users.Use(mapDB(&db))
 	{
-		users.GET("", func(c *gin.Context) {
-			c.HTML(200, "index.html", nil)
-		})
-		users.GET("/networks/:ID", func(c *gin.Context) {
+		users.GET("/:ID", func(c *gin.Context) {
 			c.HTML(200, "index.html", nil)
 		})
 		users.POST("/login", login)
@@ -48,33 +45,38 @@ func main() {
 	api.Use(jwt.Auth(jWTokenKey, "HS256"))
 	{
 		//create new
-		api.POST("/networks", createNetwork)
-		api.POST("/networks/:ID/streams", createStream)
-		api.POST("/networks/:ID/triggers", createTrigger)
-		api.POST("/networks/:ID/streams/:STREAMID/data", createDataPoint)
+		api.POST("/users/:ID/streams", createStream)
+		api.POST("/users/:ID/triggers", createTrigger)
+		api.POST("/users/:ID/streams/:STREAMID/data", createDataPoint)
 
 		//get data
-		api.GET("/networks/:ID", getNetwork)
-		api.GET("/networks/:ID/streams/:STREAMID", getStream)
+		api.GET("/users/:ID", getUser)
+		api.GET("/streams/:STREAMID", getStream) //shortcut for path of below
+		api.GET("/users/:ID/streams/:STREAMID", getStream)
+
+		//api.GET("/users/:ID/streams/:STREAMID", getStream)
 
 		//get All
-		api.GET("/networks", getAllNetwork)
-		api.GET("/networks/:ID/streams", getAllStreams)
-		api.GET("/networks/:ID/triggers", getAllTriggers)
-		api.GET("/networks/:ID/streams/:STREAMID/data", getAllDataPoints)
+		api.GET("/users/:ID/streams", getAllStreams)
+		api.GET("/users/:ID/triggers", getAllTriggers)
+		api.GET("/users/:ID/streams/:STREAMID/data", getAllDataPoints)
 
 		//modify existing
-		//api.PUT("/networks/:ID/triggers/:TRIGGERID", modifyTrigger)
-		api.PUT("/networks/:ID/streams/:STREAMID", addStream)
+		//api.PUT("/users/:ID/triggers/:TRIGGERID", modifyTrigger)
+		api.PUT("/users/:ID/streams/:STREAMID", addStream)
 
 		//delete
-		api.DELETE("/networks/:ID", deleteNetwork)
-		//api.DELETE("/networks/:ID/triggers/:TRIGGERID", deleteTrigger)
-		api.DELETE("/networks/:ID/streams/:STREAMID", deleteStream)
+		api.DELETE("/users/:ID", deleteUser)
+		//api.DELETE("/users/:ID/triggers/:TRIGGERID", deleteTrigger)
+		api.DELETE("/users/:ID/streams/:STREAMID", deleteStream)
 
 		//websocket
-		api.GET("/networks/:ID/streams/:STREAMID/socket", handleWebSocket)
+		api.GET("/users/:ID/streams/:STREAMID/socket", handleWebSocket)
 	}
+
+	router.GET("/ping", func(c *gin.Context) {
+		c.String(200, "pong")
+	})
 
 	router.Static("/assets", "./assets")
 

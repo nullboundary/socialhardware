@@ -78,8 +78,11 @@ func checkTriggers(db *storer.ReThink, data *dataPoint) {
 
 	//Get list of triggers matching this stream
 	go func() { //complete in goroutine so it doesn't slow down request
+
+		log.Println("[DEBUG] checkTriggers")
+
 		triggerList := []trigger{}
-		_, err := db.FindAllByArrayItem("networks", "networkTriggers", "streamId", data.StreamID, &triggerList) //TODO: cache this or something
+		_, err := db.FindAllByArrayItem("users", "triggers", "streamId", data.StreamID, &triggerList) //TODO: cache this or something
 		if err != nil {
 			log.Printf("[ERROR] %s", err)
 			return
@@ -92,21 +95,32 @@ func checkTriggers(db *storer.ReThink, data *dataPoint) {
 			if triggerMatch(trigger, data) {
 				//every client request in a seperate goroutine (some could be slow to return)
 				go func() {
-					url := trigger.TriggerHook.URL
-					log.Println("URL: ", url)
 
-					//if trigger.Triggerhook.Body
-					bytesBody, _ := trigger.TriggerHook.Body.MarshalJSON()
+					u, err := url.Parse(trigger.URL)
+					if err != nil {
+						log.Printf("[ERROR] %s", err)
+						return
+					}
+					//TODO: maybe localhost shouldn't be allowed after deployment ?
+					if u.Scheme == "localhost" {
+						u.Scheme = "http://localhost"
+					}
+
+					log.Println("URL: ", u)
+
+					//if trigger.Body
+					bytesBody, _ := trigger.Body.MarshalJSON()
 					bodyReader := bytes.NewReader(bytesBody)
 
 					//var jsonStr = []byte(`{"title":"Buy cheese and bread for breakfast."}`)
-					req, err := http.NewRequest(trigger.TriggerHook.Method, url, bodyReader)
+					req, err := http.NewRequest(trigger.Method, u.String(), bodyReader)
 					//req.Header.Set("Content-Type", "application/json")
 
 					client := &http.Client{}
 					resp, err := client.Do(req)
 					if err != nil {
-						panic(err)
+						log.Printf("[ERROR] %s", err)
+						return
 					}
 					defer resp.Body.Close()
 
@@ -125,10 +139,10 @@ func checkTriggers(db *storer.ReThink, data *dataPoint) {
 
 func triggerMatch(t trigger, data *dataPoint) bool {
 
-	switch t.TriggerType {
+	switch t.CondExpr {
 	case "eq":
 
-		trigCond, err := strconv.ParseFloat(t.TriggerCondition, 64)
+		trigCond, err := strconv.ParseFloat(t.CondValue, 64)
 		if err != nil {
 			log.Printf("[ERROR] %s", err)
 			return false
@@ -143,7 +157,7 @@ func triggerMatch(t trigger, data *dataPoint) bool {
 
 	case "gt":
 
-		trigCond, err := strconv.ParseFloat(t.TriggerCondition, 64)
+		trigCond, err := strconv.ParseFloat(t.CondValue, 64)
 		if err != nil {
 			log.Printf("[ERROR] %s", err)
 			return false
@@ -158,7 +172,7 @@ func triggerMatch(t trigger, data *dataPoint) bool {
 
 	case "lt":
 
-		trigCond, err := strconv.ParseFloat(t.TriggerCondition, 64)
+		trigCond, err := strconv.ParseFloat(t.CondValue, 64)
 		if err != nil {
 			log.Printf("[ERROR] %s", err)
 			return false
@@ -172,7 +186,7 @@ func triggerMatch(t trigger, data *dataPoint) bool {
 		return value < trigCond
 
 	case "regex":
-		condRegex, err := regexp.Compile(t.TriggerCondition)
+		condRegex, err := regexp.Compile(t.CondValue)
 		if err != nil {
 			log.Printf("[ERROR] %s", err)
 			return false
@@ -188,7 +202,7 @@ func triggerMatch(t trigger, data *dataPoint) bool {
 
 	default: //default (no type) is ==.
 
-		trigCond, err := strconv.ParseFloat(t.TriggerCondition, 64)
+		trigCond, err := strconv.ParseFloat(t.CondValue, 64)
 		if err != nil {
 			log.Printf("[ERROR] %s", err)
 			return false

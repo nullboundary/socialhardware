@@ -17,30 +17,15 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
     // More info: https://visionmedia.github.io/page.js/
     page('/', function () {
       app.home = false;
-      app.netid = false;
       app.landing = true;
       app.route = 'landing';
     });
 
-
-    page('/users', function () {
+    page('/users/:userid', function (data) {
       app.home = true;
-      app.netid = false;
       app.landing = false;
 
       app.route = 'home';
-    });
-
-    page('/networks', function () {
-      app.route = 'networks';
-    });
-
-    page('/users/networks/:netid', function (data) {
-      app.home = false;
-      app.netid = true;
-      app.landing = false;
-
-      app.route = 'network-display';
       app.params = data.params;
     });
 

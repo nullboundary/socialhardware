@@ -59,7 +59,7 @@
     Polymer({
       is: "line-chart",
       properties: {
-        netid: String,
+        userid: String,
         streamid: String,
         width: String,
         height: String,
@@ -122,7 +122,7 @@
         //polymer object this
         var poly = this;
 
-        d3.json('/api/v1/networks/' + this.netid + '/streams/' + this.streamid + '/data')
+        d3.json('/api/v1/users/' + this.userid + '/streams/' + this.streamid + '/data')
         .header("Authorization", "Bearer " + poly.getJWToken())
         .get(function(error, data) {
 
@@ -147,8 +147,8 @@
 
         });
 
-        console.log(this.netid);
-        url = 'ws://localhost:8000/api/v1/networks/' + this.netid + '/streams/' + this.streamid + '/socket';
+        console.log(this.userid);
+        url = 'ws://localhost:8000/api/v1/users/' + this.userid + '/streams/' + this.streamid + '/socket';
         var uri = url + '?token=' + poly.getJWToken();
         this.createWebSocket(uri);
 
@@ -264,7 +264,7 @@
         // generate the interval to a random number between 0 and the maxInterval determined from above
         return Math.random() * maxInterval;
       },
-      getJWToken: function() { //todo this is copied from load-network, find a another way to share the function?
+      getJWToken: function() { //todo this is copied from load-user, find a another way to share the function?
         if (sessionStorage.getItem("token")) {
           return sessionStorage.getItem("token");
         }

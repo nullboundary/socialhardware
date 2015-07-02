@@ -38,7 +38,7 @@
         Polymer.IronFitBehavior
       ],
       listeners: {
-        'submit-btn.click': 'handleSubmit',
+        'submit-btn.tap': 'handleSubmit',
         'iron-form-response': 'handleFormResponse',
         'iron-form-error': 'handleFormError'
       },
@@ -49,8 +49,8 @@
       },
       handleFormResponse: function(e) {
         //console.log(e.detail);
-    //    sessionStorage.setItem("token",e.detail.token);
-    //    page('/users/');
+        sessionStorage.setItem("token",e.detail.jwt.token);
+        page('/users/'+e.detail.user);
       },
       handleFormError: function(e) {
         console.warn(e.detail.error.message);
