@@ -2,16 +2,16 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"time"
 
-	"bitbucket.org/cicadaDev/utils"
 	"code.google.com/p/go.crypto/bcrypt"
+	log "github.com/Sirupsen/logrus"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/nullboundary/utilbelt"
 )
 
 //login is the handler for posting user login details
@@ -27,19 +27,27 @@ func login(c *gin.Context) {
 
 	loginInfo := &loginForm{} //store info coming from client form
 	c.BindJSON(&loginInfo)
+	logUser := log.WithField("user", loginInfo.Email)
 
 	user := newUser() //store user info retrieved from DB
 
 	_, err := db.FindByIdx("users", "email", loginInfo.Email, user)
 	if err != nil {
-		log.Println(err)
+		logUser.Errorf("login find user error %s", err)
 		status := http.StatusUnauthorized
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
 	}
 
+	if user.Verified == false {
+		logUser.Errorln("Email not verified")
+		status := http.StatusUnauthorized
+		c.JSON(status, gin.H{"message": "Please verify your email before login", "status": status})
+		return
+	}
+
 	if err != nil || bcrypt.CompareHashAndPassword(user.PassCrypt, []byte(loginInfo.Password)) != nil {
-		log.Println(err)
+		logUser.Errorf("Bcrypt hash compare error %s", err)
 		status := http.StatusUnauthorized
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -47,7 +55,7 @@ func login(c *gin.Context) {
 
 	jwt, err := createJWToken("token", []byte(jWTokenKey), user.ID)
 	if err != nil {
-		log.Println(err)
+		logUser.Errorf("create JWT error %s", err)
 		status := http.StatusInternalServerError
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -61,12 +69,26 @@ func login(c *gin.Context) {
 func signup(c *gin.Context) {
 	db := getDB(c)
 	type loginForm struct {
-		Email    string `json:"email" binding:"required"`    //the users email works as an id
-		Password string `json:"password" binding:"required"` //users password string. not added to db!
+		Email     string `json:"email" binding:"required"`    //the users email works as an id
+		Password  string `json:"password" binding:"required"` //users password string. not added to db!
+		InviteKey string `json:"invite" binding:"required"`   //users invite string.
 	}
 
 	loginInfo := &loginForm{} //store info coming from client form
 	c.BindJSON(&loginInfo)
+	logUser := log.WithField("user", loginInfo.Email)
+
+	//verify invite token. Return if invite fails
+	ok, err := utils.VerifyToken([]byte(emailTokenKey), loginInfo.InviteKey, loginInfo.Email)
+	if !ok {
+		if err != nil {
+			log.WithFields(log.Fields{"email": loginInfo.Email}).Errorf("verify invite token error %s", err)
+		}
+		log.WithFields(log.Fields{"email": loginInfo.Email}).Errorln("failed verify invite token")
+		status := http.StatusBadRequest
+		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
+		return
+	}
 
 	user := newUser() //store user info retrieved from DB
 
@@ -75,11 +97,12 @@ func signup(c *gin.Context) {
 	user.Email = loginInfo.Email
 	user.Created = time.Now()
 	user.Verified = false
+
 	//TODO: add one default stream for a new user
 
-	err := db.Add("users", user)
+	err = db.Add("users", user)
 	if err != nil {
-		log.Println(err)
+		logUser.Errorf("db add user error %s", err)
 		status := http.StatusConflict
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -97,19 +120,43 @@ func signup(c *gin.Context) {
 //verify is a handler the verifies email verification tokens.
 func verify(c *gin.Context) {
 
+	db := getDB(c)
+
+	log.Debugln("verify user")
+
 	emailAddr := c.Query("email")
 	emailToken := c.Query("token")
 	emailExpire := c.Query("expires")
 
 	_, err := utils.VerifyToken([]byte(emailTokenKey), emailToken, emailAddr, emailExpire)
 	if err != nil {
-		log.Println(err)
+		log.WithFields(log.Fields{"email": emailAddr, "expire": emailExpire}).Errorf("verify email token error %s", err)
 		status := http.StatusBadRequest
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
 	}
 
-	//TODO change verification status for user in DB
+	userData := newUser() //store user info retrieved from DB
+
+	//TODO optimize with 1 db call
+
+	_, err = db.FindByIdx("users", "email", emailAddr, userData)
+	if err != nil {
+		log.WithField("email", emailAddr).Errorf("verify find user error %s", err)
+		status := http.StatusNotFound
+		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
+		return
+	}
+
+	userData.Verified = true
+
+	_, err = db.Merge("users", userData.ID, false, userData)
+	if err != nil {
+		log.WithField("userid", userData.ID).Errorf("verify merge user error %s", err)
+		status := http.StatusInternalServerError
+		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"message": emailAddr, "status": http.StatusOK})
 }
@@ -117,13 +164,17 @@ func verify(c *gin.Context) {
 //getUser returns a specific user as json
 func getUser(c *gin.Context) {
 	db := getDB(c)
+	log.Debugln("get user")
+
 	//userID := c.Param("ID")
 	userData := newUser()
 
 	jwToken := c.MustGet("jwt").(*jwt.Token)
 	jwtUser := jwToken.Claims["sub"].(string)
 
-	if ok, _ := db.FindById("users", jwtUser, &userData); !ok {
+	_, err := db.FindById("users", jwtUser, &userData)
+	if err != nil {
+		log.WithField("userid", jwtUser).Errorf("find user error %s", err)
 		status := http.StatusNotFound
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -133,8 +184,10 @@ func getUser(c *gin.Context) {
 	c.JSON(http.StatusOK, userData)
 }
 
+//deleteUser
 func deleteUser(c *gin.Context) {
 	db := getDB(c)
+	log.Debugln("delete user")
 	//userID := c.Param("ID")
 
 	jwToken := c.MustGet("jwt").(*jwt.Token)
@@ -142,6 +195,7 @@ func deleteUser(c *gin.Context) {
 
 	err := db.DelById("users", jwtUser)
 	if err != nil {
+		log.WithField("userid", jwtUser).Errorf("delete user error %s", err)
 		status := http.StatusNotFound
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -154,6 +208,8 @@ func deleteUser(c *gin.Context) {
 //createStream creates a new empty data stream and adds it to the current user account
 func createStream(c *gin.Context) {
 	db := getDB(c)
+	m := getMQTT(c)
+
 	//userID := c.Param("ID")
 	jwToken := c.MustGet("jwt").(*jwt.Token)
 	jwtUser := jwToken.Claims["sub"].(string)
@@ -165,10 +221,11 @@ func createStream(c *gin.Context) {
 
 	newStream.StreamAdmin = jwtUser
 	newStream.StreamID = fmt.Sprintf("%d", utils.GenerateFnvHashID(time.Now().String()))
+	logStream := log.WithFields(log.Fields{"user": jwtUser, "stream": newStream.StreamID})
 
 	_, err := db.ArrayAppend("users", jwtUser, "streams", newStream.StreamID)
 	if err != nil {
-		log.Printf("[ERROR] %s", err)
+		logStream.Errorf("append stream error %s", err)
 		status := http.StatusInternalServerError
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -176,11 +233,15 @@ func createStream(c *gin.Context) {
 
 	err = db.Add("streams", newStream)
 	if err != nil {
-		log.Printf("[ERROR] %s", err)
+		logStream.Errorf("add stream error %s", err)
 		status := http.StatusInternalServerError
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
 	}
+
+	//subscribe to mqtt topic for this stream.
+	topic := newStream.StreamAdmin + "/" + newStream.StreamID
+	m.subscribe(topic)
 
 	//all ok
 	c.JSON(http.StatusCreated, gin.H{"message": newStream.StreamID, "status": http.StatusCreated})
@@ -194,9 +255,12 @@ func addStream(c *gin.Context) {
 	jwtUser := jwToken.Claims["sub"].(string)
 	streamID := c.Param("STREAMID")
 	stream := newStream()
+	logStream := log.WithFields(log.Fields{"user": jwtUser, "stream": streamID})
 
 	//find the stream
-	if ok, _ := db.FindById("streams", streamID, &stream); !ok {
+	_, err := db.FindById("streams", streamID, &stream)
+	if err != nil {
+		logStream.Errorf("find stream error %s", err)
 		status := http.StatusNotFound
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -204,15 +268,16 @@ func addStream(c *gin.Context) {
 
 	//if private, abort
 	if !stream.StreamAccess {
+		logStream.Warnf("Stream is private")
 		status := http.StatusNotFound
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
 	}
 
 	//add stream to user account
-	_, err := db.ArrayAppend("users", jwtUser, "streams", streamID)
+	_, err = db.ArrayAppend("users", jwtUser, "streams", streamID)
 	if err != nil {
-		log.Printf("[ERROR] %s", err)
+		logStream.Errorf("append stream error %s", err)
 		status := http.StatusInternalServerError
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -229,13 +294,14 @@ func getStream(c *gin.Context) {
 	streamID := c.Param("STREAMID")
 	stream := newStream()
 
-	//TODO
-	//if user id from url == jwt id. allow acces to stream if private
 	jwToken := c.MustGet("jwt").(*jwt.Token)
 	jwtUser := jwToken.Claims["sub"].(string)
+	logStream := log.WithFields(log.Fields{"user": jwtUser, "stream": streamID})
 
 	//Find the stream
-	if ok, _ := db.FindById("streams", streamID, &stream); !ok {
+	_, err := db.FindById("streams", streamID, &stream)
+	if err != nil {
+		logStream.Errorf("find stream error %s", err)
 		status := http.StatusNotFound
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -244,6 +310,7 @@ func getStream(c *gin.Context) {
 	//owner of this stream is not logged in user
 	if stream.StreamAdmin != jwtUser {
 		if !stream.StreamAccess { //and if private
+			logStream.Warnf("Stream is private")
 			status := http.StatusNotFound
 			c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 			return
@@ -265,10 +332,12 @@ func getAllStreams(c *gin.Context) {
 	jwToken := c.MustGet("jwt").(*jwt.Token)
 	jwtUser := jwToken.Claims["sub"].(string)
 
-	log.Printf("getAllStream: %s", jwtUser)
+	log.WithField("user", jwtUser).Debugln("getAllStreams")
 	//TODO: 2 db queries can probably be merged using a join or something
 
-	if ok, _ := db.FindById("users", jwtUser, &userData); !ok {
+	_, err := db.FindById("users", jwtUser, &userData)
+	if err != nil {
+		log.WithField("user", jwtUser).Errorf("find user error %s", err)
 		status := http.StatusNotFound
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -277,21 +346,13 @@ func getAllStreams(c *gin.Context) {
 	if len(userData.Streams) > 0 { //only search if there are streams listed
 		_, err := db.FindAllById("streams", userData.Streams, &streamList)
 		if err != nil {
+			log.WithField("user", jwtUser).Errorf("find all streams error %s", err)
 			status := http.StatusInternalServerError
 			c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 			return
 		}
 	}
-	/*
-		filter := map[string]string{"field": "streamAdmin", "value": userID}
-		//found false continues with empty struct. Error returns error message.
-		_, err := db.FindAllEq("streams", filter, &streamList)
-		if err != nil {
-			status := http.StatusInternalServerError
-			c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
-			return
-		}
-	*/
+
 	//render streams list
 	c.JSON(http.StatusOK, streamList)
 }
@@ -308,7 +369,7 @@ func removeStream(c *gin.Context) {
 
 	_, err := db.ArrayDeleteById("users", jwtUser, "streams", streamID)
 	if err != nil {
-		log.Printf("[ERROR] %s", err)
+		log.WithFields(log.Fields{"user": jwtUser, "stream": streamID}).Errorf("remove stream error %s", err)
 		status := http.StatusNotFound
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -322,23 +383,27 @@ func removeStream(c *gin.Context) {
 //deleteStream deletes a specific data stream from the database
 func deleteStream(c *gin.Context) {
 	db := getDB(c)
+	m := getMQTT(c)
 	//userID := c.Param("ID")
 	streamID := c.Param("STREAMID")
 	stream := newStream()
 
 	jwToken := c.MustGet("jwt").(*jwt.Token)
 	jwtUser := jwToken.Claims["sub"].(string)
+	logStream := log.WithFields(log.Fields{"user": jwtUser, "stream": streamID})
 
 	_, err := db.ArrayDeleteById("users", jwtUser, "streams", streamID)
 	if err != nil {
-		log.Printf("[ERROR] %s", err)
+		logStream.Errorf("array delete stream error %s", err)
 		status := http.StatusNotFound
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
 	}
 
 	//Find the stream
-	if ok, _ := db.FindById("streams", streamID, &stream); !ok {
+	_, err = db.FindById("streams", streamID, &stream)
+	if err != nil {
+		logStream.Errorf("find stream error %s", err)
 		status := http.StatusNotFound
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -348,12 +413,16 @@ func deleteStream(c *gin.Context) {
 	if stream.StreamAdmin == jwtUser {
 		err = db.DelById("streams", streamID)
 		if err != nil {
-			log.Printf("[ERROR] %s", err)
+			logStream.Errorf("delete stream error %s", err)
 			status := http.StatusNotFound
 			c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 			return
 		}
 	}
+
+	//unsubscribe to mqtt topic for this stream.
+	topic := stream.StreamAdmin + "/" + stream.StreamID
+	m.unsubscribe(topic)
 
 	//return deleted message
 	c.Data(204, gin.MIMEJSON, nil)
@@ -375,11 +444,19 @@ func createDataPoint(c *gin.Context) {
 	jwtUser := jwToken.Claims["sub"].(string)
 
 	dataPoint := newDataPoint()
-	c.BindJSON(&dataPoint)
+	logData := log.WithFields(log.Fields{"user": jwtUser, "data": dataPoint})
+	body := c.Request.Body
+	log.Debugln(body)
+	err := c.BindJSON(&dataPoint)
+	if err != nil {
+		logData.Errorf("bindJSON Error %s", err)
+	}
 
 	//TODO: Can this be combined with add? Find and Add?
 	//Find the stream
-	if ok, _ := db.FindById("streams", streamID, &stream); !ok {
+	_, err = db.FindById("streams", streamID, &stream)
+	if err != nil {
+		logData.Errorf("find stream error %s", err)
 		status := http.StatusNotFound
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -387,7 +464,7 @@ func createDataPoint(c *gin.Context) {
 
 	//can't add data if you don't own the stream
 	if stream.StreamAdmin != jwtUser {
-		log.Println("[ERROR] user not authorized:" + jwtUser)
+		logData.Warnln("user not authorized")
 		status := http.StatusUnauthorized
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -401,8 +478,9 @@ func createDataPoint(c *gin.Context) {
 		dataPoint.TimeStamp = time.Now()
 	}
 
-	err := db.Add("dataPoints", dataPoint)
+	err = db.Add("dataPoints", dataPoint)
 	if err != nil {
+		logData.Errorf("add data error %s", err)
 		status := http.StatusInternalServerError
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -422,11 +500,14 @@ func getAllDataPoints(c *gin.Context) {
 
 	jwToken := c.MustGet("jwt").(*jwt.Token)
 	jwtUser := jwToken.Claims["sub"].(string)
+	logStream := log.WithFields(log.Fields{"user": jwtUser, "stream": streamID})
 
 	dataPoints := []dataPoint{}
 
 	//Find stream
-	if ok, _ := db.FindById("streams", streamID, &stream); !ok {
+	_, err := db.FindById("streams", streamID, &stream)
+	if err != nil {
+		logStream.Errorf("find stream error %s", err)
 		status := http.StatusNotFound
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -435,6 +516,7 @@ func getAllDataPoints(c *gin.Context) {
 	//owner of this stream is not logged in user
 	if stream.StreamAdmin != jwtUser {
 		if !stream.StreamAccess { //and if private
+			logStream.Warnln("stream is private")
 			status := http.StatusNotFound
 			c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 			return
@@ -443,8 +525,9 @@ func getAllDataPoints(c *gin.Context) {
 
 	filter := map[string]string{"field": "streamId", "value": streamID}
 	//found false continues with empty struct. Error returns error message.
-	_, err := db.FindAllEq("dataPoints", filter, &dataPoints)
+	_, err = db.FindAllEq("dataPoints", filter, &dataPoints)
 	if err != nil {
+		logStream.Errorf("find all dataPoints error %s", err)
 		status := http.StatusInternalServerError
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -468,7 +551,7 @@ func createTrigger(c *gin.Context) {
 
 	_, err := db.ArrayAppend("users", jwtUser, "triggers", newTrigger)
 	if err != nil {
-		log.Printf("[ERROR] %s", err)
+		log.WithField("user", jwtUser).Errorf("array append trigger error %s", err)
 		status := http.StatusInternalServerError
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -481,13 +564,14 @@ func createTrigger(c *gin.Context) {
 //getAllTriggers returns a list of all triggers for a user account
 func getAllTriggers(c *gin.Context) {
 	db := getDB(c)
-	//userID := c.Param("ID")
 	userData := newUser()
 
 	jwToken := c.MustGet("jwt").(*jwt.Token)
 	jwtUser := jwToken.Claims["sub"].(string)
 
-	if ok, _ := db.FindById("users", jwtUser, &userData); !ok {
+	_, err := db.FindById("users", jwtUser, &userData)
+	if err != nil {
+		log.WithField("user", jwtUser).Errorf("get all trigger error %s", err)
 		status := http.StatusNotFound
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -500,10 +584,31 @@ func getAllTriggers(c *gin.Context) {
 
 }
 
-//modifyTrigger changes a triggers values/settings
-func modifyTrigger(c *gin.Context) {
+//getTrigger changes a triggers values/settings
+func getTrigger(c *gin.Context) {
 	db := getDB(c)
-	//userID := c.Param("ID")
+
+	jwToken := c.MustGet("jwt").(*jwt.Token)
+	jwtUser := jwToken.Claims["sub"].(string)
+
+	triggerID := c.Param("TRIGGERID")
+	trigger := newTrigger()
+
+	_, err := db.ArrayFindById("users", jwtUser, "triggers", triggerID, trigger)
+	if err != nil {
+		log.WithFields(log.Fields{"user": jwtUser, "trigger": triggerID}).Errorf("find trigger error %s", err)
+		status := http.StatusInternalServerError
+		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
+		return
+	}
+
+	//all ok
+	c.JSON(http.StatusOK, gin.H{"message": triggerID, "status": http.StatusOK})
+}
+
+//modifyTrigger changes a triggers values/settings
+func modTrigger(c *gin.Context) {
+	db := getDB(c)
 
 	jwToken := c.MustGet("jwt").(*jwt.Token)
 	jwtUser := jwToken.Claims["sub"].(string)
@@ -515,6 +620,7 @@ func modifyTrigger(c *gin.Context) {
 	//TODO: find trigger in user trigger array. Replace it.
 	_, err := db.ArrayAppend("users", jwtUser, "triggers", trigger)
 	if err != nil {
+		log.WithFields(log.Fields{"user": jwtUser, "trigger": triggerID}).Errorf("mod trigger error %s", err)
 		status := http.StatusInternalServerError
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -527,16 +633,15 @@ func modifyTrigger(c *gin.Context) {
 //deleteTrigger removes a pre-existing trigger from a user account
 func deleteTrigger(c *gin.Context) {
 	db := getDB(c)
-	//userID := c.Param("ID")
 
 	jwToken := c.MustGet("jwt").(*jwt.Token)
 	jwtUser := jwToken.Claims["sub"].(string)
 
 	triggerID := c.Param("TRIGGERID")
-	//trigger := newStream()
 
 	_, err := db.ArrayDeleteById("users", jwtUser, "triggers", triggerID)
 	if err != nil {
+		log.WithFields(log.Fields{"user": jwtUser, "trigger": triggerID}).Errorf("delete trigger error %s", err)
 		status := http.StatusInternalServerError
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -558,9 +663,14 @@ func handleWebSocket(c *gin.Context) {
 
 	jwToken := c.MustGet("jwt").(*jwt.Token)
 	jwtUser := jwToken.Claims["sub"].(string)
+	logStream := log.WithFields(log.Fields{"user": jwtUser, "stream": streamID})
+
+	dataChan := make(chan interface{}, 256)
 
 	//Find stream
-	if ok, _ := db.FindById("streams", streamID, &stream); !ok {
+	_, err := db.FindById("streams", streamID, &stream)
+	if err != nil {
+		logStream.Errorf("find stream error %s", err)
 		status := http.StatusNotFound
 		c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 		return
@@ -569,6 +679,7 @@ func handleWebSocket(c *gin.Context) {
 	//owner of this stream is not logged in user
 	if stream.StreamAdmin != jwtUser {
 		if !stream.StreamAccess { //and if private
+			logStream.Warnln("stream is private")
 			status := http.StatusNotFound
 			c.JSON(status, gin.H{"message": http.StatusText(status), "status": status})
 			return
@@ -578,18 +689,18 @@ func handleWebSocket(c *gin.Context) {
 	//upgrade to websocket connection
 	ws, err := wsupgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		fmt.Println("Failed to set websocket upgrade: %+v", err)
+		logStream.Errorf("Failed to set websocket upgrade %s", err)
 		return
 	}
 	defer ws.Close()
 
 	go reader(ws)
 
-	//go writer(ws) //recieve data from feedData channel ping until data recieved
+	go writer(ws, dataChan) //recieve data from feedData channel ping until data recieved
 
 	feedData, err := db.ChangesByIdx("dataPoints", "streamId", streamID, 1) //TODO: Filter per stream or user
 	if err != nil {
-		log.Printf("[ERROR] feedData: %s", err)
+		logStream.Errorf("change feed error %s", err)
 	}
 	defer feedData.Close()
 
@@ -597,17 +708,42 @@ func handleWebSocket(c *gin.Context) {
 
 	for feedData.Next(&data) { //blocks forever
 
+		dataChan <- data
 		//TODO: write to channel
 
-		ws.SetWriteDeadline(time.Now().Add(time.Second * 10))
-		err := ws.WriteJSON(data)
-		if err != nil {
-			log.Println("[ERROR] writeJSON: %s", err.Error())
-			return
-		}
 	}
 	if feedData.Err() != nil {
-		log.Printf("[ERROR] %s", feedData.Err())
+		logStream.Errorf("feedData error %s", feedData.Err())
+	}
+
+}
+
+func writer(ws *websocket.Conn, dataChan <-chan interface{}) {
+
+	writeWait := time.Second * 10
+	pingPeriod := ((time.Second * 60) * 9) / 10
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		ws.Close()
+	}()
+
+	for {
+		select {
+		case message := <-dataChan:
+			ws.SetWriteDeadline(time.Now().Add(writeWait))
+			err := ws.WriteJSON(message)
+			if err != nil {
+				log.Errorf("write JSON error %s", err.Error())
+				return
+			}
+		case <-ticker.C:
+			err := ws.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(writeWait))
+			if err != nil {
+				log.Errorf("write ping error %s", err.Error())
+				return
+			}
+		}
 	}
 
 }
@@ -621,7 +757,7 @@ func reader(ws *websocket.Conn) {
 	for {
 		_, _, err := ws.ReadMessage()
 		if err != nil {
-			log.Println("[ERROR] readMsg: %s", err.Error())
+			log.Errorf("read msg error %s", err.Error())
 			break
 		}
 	}

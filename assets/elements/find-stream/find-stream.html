@@ -76,7 +76,7 @@
       },
       addAjaxHandler: function() {
           console.log("addAjaxHandler!");
-        this.$$('#add-ajax').url = "//localhost:8000/api/v1/users/" + this.userid + "/streams/" + this.streamid;
+        this.$$('#add-ajax').url = "//localhost:8000/api/v1/streams/" + this.streamid;
         var auth = '{"Authorization": "Bearer ' + this.getJWToken() + '"}';
         this.$$('#add-ajax').headers = JSON.parse(auth);
         this.$$('#add-ajax').generateRequest();

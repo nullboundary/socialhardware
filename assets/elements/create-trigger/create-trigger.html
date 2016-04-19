@@ -29,7 +29,7 @@
   <template>
     <paper-material elevation="1">
       <div class="container">
-        <iron-ajax id="triggerAjax" method="POST" url="{{computeFormURL(userid)}}" handle-as="json" headers="" on-error="handleError" on-response="handleResponse" debounce-duration="300">
+        <iron-ajax id="triggerAjax" method="POST" url="/api/v1/triggers" handle-as="json" headers="" on-error="handleError" on-response="handleResponse" debounce-duration="300">
         </iron-ajax>
         <form center class="sized" is="iron-form" id="create-form">
           <label>Stream </label>
@@ -77,10 +77,6 @@
       is: 'create-trigger',
 
       properties: {
-        userid: {
-          type: Number
-            //  observer: 'inputChanged'
-        },
         streams: Array
       },
       behaviors: [
@@ -96,20 +92,7 @@
         this.$.triggerAjax.headers = JSON.parse(auth);
         this.$.triggerAjax.body = JSON.stringify(this.$['create-form'].serialize());
         this.$.triggerAjax.generateRequest();
-
-        //this.$['create-form'].contentType = 'application/json';
-
-        //this.$['create-form'].submit();
-        //document.getElementById('create-form').submit(); //submits serialized json as post request
-        //page('/networks/'+networkID);
       },
-
-      computeFormURL: function(netid) {
-        var requestURL = "/api/v1/users/" + netid + "/triggers";
-        console.log(requestURL);
-        return requestURL;
-      },
-
       handleError: function(request, error) {
         console.log(error.error);
         console.log(this.$.loadError.update);

@@ -3,6 +3,29 @@
     :host {
       display: block;
     }
+
+    .list {
+      padding-top: 12px;
+      background-color: white;
+      display: inline-block;
+      width: 30%;
+      min-width: 15em;
+      height: 34em;
+      margin: 12px;
+      @apply(--shadow-elevation-2dp);
+      overflow-y: auto;
+    }
+
+    .short {
+      padding-top: 12px;
+      height: 216px;
+    }
+
+    paper-item {
+      border-bottom: 1px solid black;
+      border-color: var(--divider-color);
+      /*override with theme color*/
+    }
   </style>
   <template>
 
@@ -32,12 +55,35 @@
         fill: #5C6BC0;
       }
 
+      rect.pane {
+        cursor: move;
+        fill: none;
+        pointer-events: all;
+      }
+
       .no-data {
         padding: 5em 5em 5em 5em;
       }
     </style>
 
     <div id="{{computeChart(streamid)}}"></div>
+
+    <div class="list">
+      <template is="dom-repeat" items="{{loglist}}">
+
+        <paper-item>
+          <paper-item-body two-line class="layout vertical">
+            <div>
+              <span>{{computeTimeFormat(item.timeStamp)}}</span>
+            </div>
+            <div secondary>{{item.value}}</div>
+          </paper-item-body>
+        </paper-item>
+
+      </template>
+
+    </div>
+
 
   </template>
 </dom-module>
@@ -49,6 +95,7 @@
     //  var chart;
     var socketAttempts = 1;
     var JSONData;
+    //const loglist = [];
     var margin = {
       top: 0,
       right: 20,
@@ -68,30 +115,41 @@
         data: {
           type: Array,
           notify: true
-        //  value: function() {
-        //    return [];
-      //    },
+        },
+        loglist: {
+          type: Array,
+          notify: true,
+          //value: []
         }
       },
-      observers: ['dataChanged(data.*)'],
+      behaviors: [
+        Polymer.IronResizableBehavior
+      ],
+      observers: ['dataChanged(data.splices)'],
+      listeners: {
+        'iron-resize': '_onIronResize'
+      },
       /***********************************************************
 
 
        ***********************************************************/
       computeSize: function(width, height) {
         var size = {};
-        console.log(this.width);
-        console.log(this.height);
+        console.log("property: " + this.width + " computed: " + width);
+        console.log("property: " + this.height + " computed: " + height);
 
         var widthPercent = parseFloat(this.width) / 100.0;
         var heightPercent = parseFloat(this.height) / 100.0;
 
-        size.height = height * heightPercent;
         size.width = width * widthPercent;
+        size.height = height * heightPercent;
 
         return size;
       },
+      /***********************************************************
 
+
+       ***********************************************************/
       computeChart: function(streamid) {
         return 'chart-' + streamid;
       },
@@ -99,7 +157,52 @@
 
 
        ***********************************************************/
+      computeTimeFormat: function(timeStamp) {
+        var d = new Date(timeStamp);
+        return d.toLocaleString();
+      },
+      /***********************************************************
+      get parent is used for Iron-resize
+
+       ***********************************************************/
+      get parent() {
+        if (this.parentNode.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+          return this.parentNode.host;
+        }
+
+        return this.parentNode;
+      },
+      /***********************************************************
+
+
+       ***********************************************************/
+      _onIronResize: function() {
+        var x = Math.floor(this.parent.offsetWidth / 1.62);
+        var y = Math.floor(this.parent.offsetHeight);
+
+        if (y > 500) {
+          y = 500;
+        }
+
+        console.log(this.parent);
+        console.log(x + ":" + y);
+
+        //this.translate3d(x + 'px', y + 'px', 0);
+        var chartContainer = d3.select('#chart-' + this.streamid);
+        //var size = this.computeSize(chartContainer.node().offsetWidth, 500);
+
+        this.chart
+          .width(x)
+          .height(y)
+          .update(chartContainer, this.data);
+      },
+      /***********************************************************
+
+
+       ***********************************************************/
       attached: function() {
+
+        this.loglist = [];
 
         this.chart = lineChart()
           .x(function(d) {
@@ -111,6 +214,8 @@
           .margin(margin)
 
         this.loadStream();
+
+
       },
 
       /***********************************************************
@@ -122,56 +227,66 @@
         //polymer object this
         var poly = this;
 
-        d3.json('/api/v1/users/' + this.userid + '/streams/' + this.streamid + '/data')
-        .header("Authorization", "Bearer " + poly.getJWToken())
-        .get(function(error, data) {
+        d3.json('/api/v1/streams/' + this.streamid + '/data')
+          .header("Authorization", "Bearer " + poly.getJWToken())
+          .get(function(error, data) {
 
-          if (error) {
-            console.log(error);
-            return;
-          }
+            if (error) {
+              console.log(error);
+              return;
+            }
 
-          console.log(JSON.stringify(data));
-          console.log(poly.streamid);
-          if (!data.length) {
-            d3.select('#chart-' + poly.streamid)
-              .append('div')
-              .attr('class', 'no-data')
-              .text('Stream contains no data');
-            return;
-          }
+            //console.log(JSON.stringify(data));
+            //console.log(poly.streamid);
+            if (!data.length) {
+              d3.select('#chart-' + poly.streamid)
+                .append('div')
+                .attr('class', 'no-data')
+                .text('Stream contains no data');
+              return;
+            }
 
-          poly.data = data;
+            poly.data = data;
 
-          poly.buildNewChart();
+            poly.buildNewChart();
 
-        });
+          });
 
         console.log(this.userid);
-        url = 'ws://localhost:8000/api/v1/users/' + this.userid + '/streams/' + this.streamid + '/socket';
+        url = 'ws://localhost:8000/api/v1/streams/' + this.streamid + '/socket';
         var uri = url + '?token=' + poly.getJWToken();
         this.createWebSocket(uri);
 
       },
+      /***********************************************************
 
+
+       ***********************************************************/
       buildNewChart: function() {
 
         this.data.sort(function(a, b) {
           return d3.ascending(a.timeStamp, b.timeStamp);
         }); //sort data based on time
 
-        var chartContainer = d3.select('#chart-' + this.streamid);
-        var size = this.computeSize(chartContainer.node().offsetWidth, 500);
 
-        this.chart
-          .width(size.width)
-          .height(size.height); //TODO: this is a fixed number..shouldn't be
+        var chartContainer = d3.select('#chart-' + this.streamid);
+        //  var size = this.computeSize(chartContainer.node().offsetWidth, 500);
+
+        //    this.chart
+        //    .width(size.width)
+        //  .height(size.height); //TODO: this is a fixed number..shouldn't be
+
+        this._onIronResize();
 
         chartContainer
+          .style('display', 'inline-flex')
           .datum(this.data)
           .call(this.chart);
       },
+      /***********************************************************
 
+
+       ***********************************************************/
       dataChanged: function(changeRecord) {
 
         var chartContainer = d3.select('#chart-' + this.streamid)
@@ -179,13 +294,15 @@
 
         if (!blankDiv.empty()) { //there is a no-data div inside chart
           blankDiv.remove(); //remove empty div
-          poly.buildNewChart();
+          this.buildNewChart();
         } else {
-          this.chart.update(chartContainer,this.data);
+          this.chart
+            .update(chartContainer, this.data);
         }
+       this.push('loglist',this.data[this.data.length-1]);
+       console.log(this.loglist);
 
       },
-
 
       /***********************************************************
 
@@ -219,15 +336,9 @@
         }
 
         this.ws.onmessage = function(msg) {
-          var data = JSON.parse(msg.data);
-            console.log(msg.data);
-          poly.push('data', data); //dataChanged observer will fire
-
-
-          var log = data.timeStamp + " value:" + data.value + '\r\n';
-          //  d3.select("#output").node().value += log;
-
-          //    console.log(msg);
+          var newData = JSON.parse(msg.data);
+          console.log(msg.data);
+          poly.push('data', newData); //dataChanged observer will fire
         }
 
       },
@@ -264,6 +375,10 @@
         // generate the interval to a random number between 0 and the maxInterval determined from above
         return Math.random() * maxInterval;
       },
+      /***********************************************************
+
+
+       ***********************************************************/
       getJWToken: function() { //todo this is copied from load-user, find a another way to share the function?
         if (sessionStorage.getItem("token")) {
           return sessionStorage.getItem("token");

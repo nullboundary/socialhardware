@@ -1,0 +1,88 @@
+<dom-module id="create-stream">
+  <style>
+    :host {
+      display: block;
+    }
+
+    .container {
+      background-color: var(--create-trigger-container-background-color);
+      padding-top: 25px;
+      padding-bottom: 5px;
+      margin-left: 25px;
+      margin-right: 25px;
+    }
+
+    paper-input {
+      --paper-input-container-color: var(--create-trigger-container-color);
+      --paper-input-container-input-color: var(--create-trigger-container-input-color);
+    }
+
+    .title {
+      color: var(--my-toolbar-title-color);
+    }
+  </style>
+  <template>
+
+    <paper-material elevation="1">
+      <div class="container">
+        <iron-ajax id="streamAjax" method="POST" url="/api/v1/streams" handle-as="json" headers="" on-error="handleError" on-response="handleResponse" debounce-duration="300">
+        </iron-ajax>
+        <form center class="sized" is="iron-form" id="create-stream-form">
+          <paper-input name="streamName" label="Stream Name"></paper-input>
+          <paper-input name="streamDesc" label="Description"></paper-input>
+          <paper-input name="streamLoc" label="Location"></paper-input>
+
+          <br>
+          <paper-toggle-button></paper-toggle-button> Private Stream
+          <br>
+          <br>
+        </form>
+        <paper-button id="create-stream-btn" raised>Create Stream</paper-button>
+      </div>
+    </paper-material>
+
+
+
+  </template>
+</dom-module>
+<script>
+  (function() {
+    Polymer({
+      is: 'create-stream',
+
+      properties: {
+        netid: {
+          type: Number
+            //  observer: 'inputChanged'
+        }
+      },
+      behaviors: [
+        Polymer.IronFitBehavior
+      ],
+      listeners: {
+        'create-stream-btn.tap': 'handleSubmit',
+        'iron-form-response': 'handleFormResponse'
+      },
+
+      handleSubmit: function() {
+        console.log(this.$['create-stream-form'].serialize());
+        var auth = '{"Authorization": "Bearer ' + this.getJWToken() + '"}';
+        this.$.streamAjax.headers = JSON.parse(auth);
+        this.$.streamAjax.body = JSON.stringify(this.$['create-stream-form'].serialize());
+        this.$.streamAjax.generateRequest();
+
+      },
+
+      handleFormResponse: function(e) {
+        console.log(e);
+      },
+      getJWToken: function() { //todo this is copied from load-user, find a another way to share the function?
+        if (sessionStorage.getItem("token")) {
+          return sessionStorage.getItem("token");
+        }
+      }
+
+    });
+
+  })();
+</script>

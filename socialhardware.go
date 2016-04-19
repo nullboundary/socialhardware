@@ -2,24 +2,44 @@ package main
 
 import (
 	"html/template"
+	"os"
+	"time"
 
+	log "github.com/Sirupsen/logrus"
+	"github.com/gin-gonic/contrib/ginrus"
 	"github.com/gin-gonic/contrib/gzip"
 	"github.com/gin-gonic/contrib/jwt"
 	"github.com/gin-gonic/gin"
 )
 
-var jWTokenKey = `aylbxm"XA1A*32:d.rvgNSS_RK3r;Tp`    //TODO: lets make a new key and put this somewhere safer!
-var emailTokenKey = `yrCuch/BE*RN??tGUR?{CTYUTs_ApLW` //TODO: lets make a new key and put this somewhere safer!
+var (
+	jWTokenKey    string
+	emailTokenKey string
+	rethinkKey    string
+)
 
 func init() {
-
+	jWTokenKey = os.Getenv("SOCIALHW_JWTKEY")
+	emailTokenKey = os.Getenv("SOCIALHW_EMAILKEY")
+	rethinkKey = os.Getenv("SOCIALHW_DBKEY")
 }
 
 func main() {
 
 	db := setupDB()
+	m := newMqttClient()
+	m.setup("socialhardware", "tcp://localhost:1883", 0, db)
+	m.registerStreams(db)
+
 	router := gin.Default()
+
+	//Add Gzip middleware
 	router.Use(gzip.Gzip(gzip.DefaultCompression))
+
+	//add logrus middleware
+	logger := log.New()
+	logger.Level = log.DebugLevel
+	router.Use(ginrus.Ginrus(logger, time.RFC3339, false))
 
 	html := template.New("")
 	html.Delims("{%", "%}")
@@ -28,50 +48,48 @@ func main() {
 	router.SetHTMLTemplate(html)
 
 	//Login
-	users := router.Group("/users")
-	users.Use(mapDB(&db))
+	users := router.Group("/auth")
+	users.Use(mapDB(db))
 	{
-		users.GET("/:ID", func(c *gin.Context) {
-			c.HTML(200, "index.html", nil)
-		})
+		users.GET("/verify", verify)
 		users.POST("/login", login)
 		users.POST("/signup", signup)
-		users.POST("/verify", verify)
 	}
 
 	//API
 	api := router.Group("/api/v1")
-	api.Use(mapDB(&db))
+	api.Use(mapDB(db))
+	api.Use(mapMQTT(m))
 	api.Use(jwt.Auth(jWTokenKey, "HS256"))
 	{
 		//create new
-		api.POST("/users/:ID/streams", createStream)
-		api.POST("/users/:ID/triggers", createTrigger)
-		api.POST("/users/:ID/streams/:STREAMID/data", createDataPoint)
+		api.POST("/streams", createStream)
+		api.POST("/triggers", createTrigger)
+		api.POST("/streams/:STREAMID/data", createDataPoint)
 
 		//get data
-		api.GET("/users/:ID", getUser)
-		api.GET("/streams/:STREAMID", getStream) //shortcut for path of below
-		api.GET("/users/:ID/streams/:STREAMID", getStream)
+		api.GET("/users", getUser)
+		api.GET("/streams/:STREAMID", getStream)
+		api.GET("/triggers/:TRIGGERID", getTrigger)
 
 		//api.GET("/users/:ID/streams/:STREAMID", getStream)
 
 		//get All
-		api.GET("/users/:ID/streams", getAllStreams)
-		api.GET("/users/:ID/triggers", getAllTriggers)
-		api.GET("/users/:ID/streams/:STREAMID/data", getAllDataPoints)
+		api.GET("/streams", getAllStreams)
+		api.GET("/triggers", getAllTriggers)
+		api.GET("/streams/:STREAMID/data", getAllDataPoints)
 
 		//modify existing
-		//api.PUT("/users/:ID/triggers/:TRIGGERID", modifyTrigger)
-		api.PUT("/users/:ID/streams/:STREAMID", addStream)
+		api.PUT("/streams/:STREAMID", addStream)
+		api.PUT("/triggers/:TRIGGERID", modTrigger)
 
 		//delete
 		api.DELETE("/users/:ID", deleteUser)
-		//api.DELETE("/users/:ID/triggers/:TRIGGERID", deleteTrigger)
-		api.DELETE("/users/:ID/streams/:STREAMID", deleteStream)
+		api.DELETE("/streams/:STREAMID", deleteStream)
+		api.DELETE("/triggers/:TRIGGERID", deleteTrigger)
 
 		//websocket
-		api.GET("/users/:ID/streams/:STREAMID/socket", handleWebSocket)
+		api.GET("/streams/:STREAMID/socket", handleWebSocket)
 	}
 
 	router.GET("/ping", func(c *gin.Context) {
@@ -83,6 +101,10 @@ func main() {
 	router.GET("/", func(c *gin.Context) {
 		c.HTML(200, "index.html", nil)
 	})
+	//TODO: this should be a different path then users/username
+	router.GET("users/:ID", func(c *gin.Context) {
+		c.HTML(200, "index.html", nil)
+	})
 
-	router.Run(":8000") // listen and serve on 0.0.0.0:8080
+	router.Run(os.Getenv("SOCIALHW_PORT"))
 }

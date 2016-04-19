@@ -1,8 +1,8 @@
 package main
 
 import (
-	"bitbucket.org/cicadaDev/utils"
 	"bytes"
+	log "github.com/Sirupsen/logrus"
 	"net/smtp"
 	"os"
 	"text/template"
@@ -34,9 +34,9 @@ To: {{.To}}}
 Subject: {{.Subject}}
 Welcome to Social Hardware!
 
-Verify yourself and start data logging.
-To get started, click the link below:
+Verify yourself and start logging data.
 
+To get started, click the link below:
 {{.VerifyURL}}
 
 Sincerely,
@@ -73,10 +73,10 @@ func (mail *emailer) Send(to string, token string, url string) {
 //////////////////////////////////////////////////////////////////////////
 func (mail *emailer) connect() {
 
-	username := os.Getenv("PASS_APP_EMAIL_USERNAME")
-	pw := os.Getenv("PASS_APP_EMAIL_PW")
-	url := os.Getenv("PASS_APP_EMAIL_URL")
-	port := os.Getenv("PASS_APP_EMAIL_PORT")
+	username := os.Getenv("SOCIALHW_EMAIL_USERNAME")
+	pw := os.Getenv("SOCIALHW_EMAIL_PW")
+	url := os.Getenv("SOCIALHW_EMAIL_URL")
+	port := os.Getenv("SOCIALHW_EMAIL_PORT")
 
 	server := &emailServer{username, pw, url, port}
 	mail.Server = server
@@ -104,10 +104,14 @@ func (mail *emailer) create(to string, token string, url string) {
 
 	//parse the template
 	t, err := t.Parse(emailTemplate)
-	utils.Check(err)
+	if err != nil {
+		log.Errorf("emailTemplate error %s", err)
+	}
 
 	err = t.Execute(&mail.EmailDoc, context)
-	utils.Check(err)
+	if err != nil {
+		log.Errorf("template exec error %s", err)
+	}
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -118,8 +122,10 @@ func (mail *emailer) create(to string, token string, url string) {
 //////////////////////////////////////////////////////////////////////////
 func (mail *emailer) deliver(userEmail string) {
 
-	addressPort := mail.Server.Address + ":" + mail.Server.Port // in our case, "smtp.google.com:587"
+	addressPort := mail.Server.Address + ":" + mail.Server.Port
 
 	err := smtp.SendMail(addressPort, mail.Auth, mail.Server.Username, []string{userEmail}, mail.EmailDoc.Bytes())
-	utils.Check(err)
+	if err != nil {
+		log.Errorf("sendmail error %s", err)
+	}
 }
