@@ -41,9 +41,11 @@ func main() {
 	logger.Level = log.DebugLevel
 	router.Use(ginrus.Ginrus(logger, time.RFC3339, false))
 
-	html := template.New("")
+	html := template.New("index.html")
 	html.Delims("{%", "%}")
 	html.ParseFiles("index.html")
+
+	//html := template.Must(template.New("").Delims("{%", "%}").ParseFiles("index.html"))
 
 	router.SetHTMLTemplate(html)
 
