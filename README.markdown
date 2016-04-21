@@ -5,7 +5,7 @@
 - Restful API
 - Websocket realtime browser updates
 - Conditional triggers
-- [Client hardware sensor example] (https://github.com/nullboundary/SensorApi-esp8266)
+- [Esp8266 hardware sensor example] (https://github.com/nullboundary/SensorApi-esp8266)
 
 ###Status
 - Beta
