@@ -10,6 +10,11 @@
 ###Status
 - Beta
 
+###TODO
+- Add option to use boltdb for easier install
+- Make MQTT broker optional
+- Release crossplatform binaries
+
 --
 
 ### Default Stream view
