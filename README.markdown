@@ -1,10 +1,11 @@
 # Socialhardware
 
 ###Features 
-- Pairs with MQTT broker
+- [Pairs with MQTT broker] (https://github.com/nullboundary/pesand)
 - Restful API
 - Websocket realtime browser updates
 - Conditional triggers
+- [Client hardware sensor example] (https://github.com/nullboundary/SensorApi-esp8266)
 
 ###Status
 - Beta
